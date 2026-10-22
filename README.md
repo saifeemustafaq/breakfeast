@@ -44,3 +44,5 @@ Add `--stdin` to read the password from standard input, or `--generate` to creat
 ## Deploying
 
 Deploy to Netlify (or any Node host) and set `MONGODB_URI`, `MONGODB_DB`, `APP_ORIGIN` (the site's exact URL) and `CLIENT_IP_SOURCE=x-nf-client-connection-ip`. IP geolocation defaults to ip-api's free tier (non-commercial, HTTP); set `GEOIP_PROVIDER=ipinfo` and `GEOIP_TOKEN` for HTTPS, or `none` to turn it off. Run `npm run db:init` and `admin:create` once against the production database from your machine.
+
+Before pushing to `main`, `npm run predeploy` runs the same checks as the Netlify build, including Netlify's secrets scan (any env value found in the code, build output or bundled dependencies fails the deploy). A pre-push hook runs it automatically for `main`. Only set variables the app reads (see `.env.example`); `MONGODB_DB` is excluded from the scan in `netlify.toml` because it's the project name, not a secret.

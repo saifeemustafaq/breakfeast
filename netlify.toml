@@ -1,0 +1,7 @@
+[build]
+  command = "npm run build"
+
+[build.environment]
+  # The database name is also the project name, so it appears in source and in the build.
+  # It isn't a secret; real secrets (MONGODB_URI, GEOIP_TOKEN) stay scanned.
+  SECRETS_SCAN_OMIT_KEYS = "MONGODB_DB"

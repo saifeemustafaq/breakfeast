@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs the Netlify predeploy checks when pushing to main. Skip once with: git push --no-verify
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    echo "Pushing to main: running npm run predeploy"
+    npm run predeploy || exit 1
+  fi
+done
+exit 0

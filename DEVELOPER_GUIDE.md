@@ -151,6 +151,7 @@ breakfeast/
 │                                                                        #   IP geolocation, activity ingest, bf_device cookie
 ├── scripts/
 │   ├── admin-cli.ts               # db:init, db:reset-app-data, admin:create|reset-password|list|disable|enable
+│   ├── predeploy.ts               # npm run predeploy: tests, tsc, lint, build, Netlify-style secrets scan
 │   └── extract-usda.py            # USDA FoodData Central CSV to lib/nutrition-data.ts
 ├── docs/nutrition-methodology.md, docs/business-events.md
 └── plan15.md, admin-panel-instructions.md, README.md, AGENTS.md, .env.example
@@ -752,6 +753,8 @@ Rules:
 - Destructive commands require an explicit `--yes`.
 - The CLI connects with its own `MongoClient` and imports only modules without `server-only`.
 
+`scripts/predeploy.ts` (`npm run predeploy`) runs the checks a Netlify deploy runs, including its secrets scan (section 24).
+
 `scripts/extract-usda.py` regenerates `lib/nutrition-data.ts` from a USDA SR Legacy CSV download. Run it by hand when the ingredient mapping changes, then run the tests.
 
 ---
@@ -765,6 +768,8 @@ Rules:
   - New recipe or ingredient: the existing nutrition tests must pass.
   - Anything else: a manual walkthrough of the paths you touched, written in the PR description (requests sent, responses and rows seen). For monitoring, check the user's Devices, Access history and Activity tabs and the Live activity page.
 - **Before opening a PR:** `npm test`, `npx tsc --noEmit`, `npm run lint`, and `npm run build` (the build typechecks too). Then click through the change on a phone-sized viewport.
+- **`npm run predeploy`** runs all four, then a copy of Netlify's secrets scan: it looks for the value of every variable in `.env.local`, `.env.production.local` and `.env.netlify` in the repo, `.next` and `node_modules` (Netlify bundles dependencies into the server functions), skipping keys in `SECRETS_SCAN_OMIT_KEYS` in `netlify.toml`. It also names variables that are set but not in `.env.example`. `-- --scan-only` skips the build. A git `pre-push` hook (`.githooks/`, installed by `npm install` through `prepare`) runs it on every push to `main`; `git push --no-verify` skips it once.
+- **When the scan flags a variable:** if it isn't secret (`MONGODB_DB` is the project name), add it to `SECRETS_SCAN_OMIT_KEYS`; if the app doesn't use it, delete it locally and in Netlify; if it's a real secret, it must never be in code or output. Short values can collide with text in dependencies by chance, so use long random secrets. To scan with the site's real values, export them to the git-ignored `.env.netlify`.
 - **Calling a Server Action from `curl`** for a walkthrough: take its id from `.next/dev/server/server-reference-manifest.json` (dev ids differ from build ids) and POST to any page with `Next-Action: <id>`, `Content-Type: text/plain;charset=UTF-8`, the `Origin` header and the session cookie; the body is the JSON array of arguments.
 
 ---
@@ -818,5 +823,5 @@ Before you open a PR:
 - [ ] No hex colors in user-app components; admin styles stay in `admin.css`.
 - [ ] No em dashes in code, copy, docs or the commit message.
 - [ ] New env vars are in `.env.example`, section 22 and the README.
-- [ ] `npm test`, `npx tsc --noEmit`, `npm run lint` and `npm run build` pass.
+- [ ] `npm run predeploy` passes (tests, typecheck, lint, build, secrets scan).
 - [ ] This guide's tree and backlog are updated if you changed structure or fixed a gap.

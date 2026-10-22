@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "predeploy": "tsx scripts/predeploy.ts",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "db:init": "tsx scripts/admin-cli.ts db:init",
     "db:reset-app-data": "tsx scripts/admin-cli.ts db:reset-app-data",
     "admin:create": "tsx scripts/admin-cli.ts admin:create",
