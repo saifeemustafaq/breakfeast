@@ -1,0 +1,18 @@
+---
+description: Never use em dashes in any text
+alwaysApply: true
+---
+
+# No em dashes
+
+Never write the em dash character (—) anywhere: UI copy, code, comments, docs, commit messages, or chat responses.
+
+Use a comma, period, colon, or parentheses instead, or rewrite the sentence.
+
+```tsx
+// Bad
+<p>Cooked — it's in the fridge</p>
+
+// Good
+<p>Cooked, it's in the fridge</p>
+```

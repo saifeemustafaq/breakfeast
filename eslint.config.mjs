@@ -5,6 +5,24 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ["app/**", "components/**", "lib/**"],
+    ignores: ["components/admin/**", "components/activity/toast.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "sonner",
+              importNames: ["toast"],
+              message: "Import toast from @/components/activity/toast so notifications reach the activity log.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

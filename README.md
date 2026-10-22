@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Breakfeast
 
-## Getting Started
+A phone-first breakfast companion for the 15-breakfast trial in `plan15.md`. It suggests what to make, walks you through a kitchen check, sends anything missing to a shopping cart, and handles overnight prep.
 
-First, run the development server:
+Working on the code? Read `DEVELOPER_GUIDE.md` first.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Setup
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. In MongoDB Atlas, create a free cluster, a database user, and allow network access (your IP for local dev; `0.0.0.0/0` for Netlify or another serverless host).
+2. Copy the connection string (**Connect → Drivers**) into `.env.local` as `MONGODB_URI`. See `.env.example` for every variable.
+3. `npm install`
+4. Create the indexes, then your admin account (you'll be prompted for the password twice):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+   ```sh
+   npm run db:init
+   npm run admin:create -- <your-admin-id>
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+5. `npm run dev`, sign in at http://localhost:3000/theadmin, and create user accounts there. Each user signs in at `/login` with their US mobile number and the password you give them.
 
-## Learn More
+## Accounts
 
-To learn more about Next.js, take a look at the following resources:
+- Only the admin creates users. User passwords are 4 to 6 characters (generated ones are exactly 6) so they can be read out over the phone; they are safe only because sign-in attempts are rate limited.
+- Users can't change their own password. The admin resets it from the user's page, which signs the user out everywhere.
+- Each user starts in a household of one. From the Household section on the Pantry page they can invite someone by mobile number; once accepted, the two share the pantry, cart, tomorrow's plan and breakfast history, while each keeps their own ratings. Leaving keeps a copy of everything. The admin can remove or move members from the user's Household tab.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Monitoring
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Sign-ins, sign-outs and app opens are recorded with the device, IP location and (when the person allows it) GPS location, and the app logs what people do (pages, taps, saves, errors; never what they type). The admin sees this on each user's Devices, Access history and Activity tabs, on **Live activity**, and on **Alerts**, which lists sign-ins flagged as possible account sharing (new device, two devices at once, far from the last location, and so on). There are no alert emails. Geolocation uses ip-api by default; see `GEOIP_PROVIDER` in `.env.example`.
 
-## Deploy on Vercel
+## Admin CLI
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Command | What it does |
+| --- | --- |
+| `npm run db:init` | Create every index. Safe to rerun |
+| `npm run admin:create -- <id>` | New admin; prompts for the password |
+| `npm run admin:reset-password -- <id>` | New password; signs that admin out everywhere |
+| `npm run admin:list` | Admin IDs, status, last login |
+| `npm run admin:disable -- <id>` / `admin:enable -- <id>` | Block or restore an admin |
+| `npm run db:reset-app-data -- --yes` | Delete all breakfast data (pantry, cart, plan, history, ratings) |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Add `--stdin` to read the password from standard input, or `--generate` to create and print a 12-character one. Passwords are never accepted as arguments.
+
+## Deploying
+
+Deploy to Netlify (or any Node host) and set `MONGODB_URI`, `MONGODB_DB`, `APP_ORIGIN` (the site's exact URL) and `CLIENT_IP_SOURCE=x-nf-client-connection-ip`. IP geolocation defaults to ip-api's free tier (non-commercial, HTTP); set `GEOIP_PROVIDER=ipinfo` and `GEOIP_TOKEN` for HTTPS, or `none` to turn it off. Run `npm run db:init` and `admin:create` once against the production database from your machine.

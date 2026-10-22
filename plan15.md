@@ -51,6 +51,6 @@ For chicken, cook to **165°F (74°C)**. Refrigerate cooked food promptly, use r
 
 After each breakfast, have her rate **taste**, **how she feels afterward**, and **whether she wants it again**, each from 1–5. Add a note such as “less thick,” “smaller serving,” or “good on workout mornings.” For a shake, specifically ask whether it kept her satisfied.
 
-Then choose seven she *wants* to repeat. If the highest scores are all sweet bowls, consider whether one well-liked savory choice would make the week more enjoyable—but don’t force a nutritionally admirable recipe she dislikes. Keep one or two runners-up available as swaps. Her comfort and appetite are part of whether this will last.
+Then choose seven she *wants* to repeat. If the highest scores are all sweet bowls, consider whether one well-liked savory choice would make the week more enjoyable, but don’t force a nutritionally admirable recipe she dislikes. Keep one or two runners-up available as swaps. Her comfort and appetite are part of whether this will last.
 
 Finally, treat the reported egg and beetroot reactions as strict exclusions while she seeks medical guidance on them. Read the **full ingredient list** on bread, cereal, salsa, and any future protein powder, and keep preparation surfaces and utensils clear of egg. Egg is a major labeled allergen in the U.S.; beetroot is not on that list, and coconut no longer has to appear in a “Contains” allergen statement. [FDA](https://www.fda.gov/consumers/consumer-updates/have-food-allergies-read-label?utm_source=chatgpt.com)
