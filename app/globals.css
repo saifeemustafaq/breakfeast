@@ -139,4 +139,8 @@
   html {
     @apply font-sans;
   }
+  html,
+  body {
+    overscroll-behavior: none;
+  }
 }

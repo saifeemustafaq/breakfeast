@@ -49,12 +49,21 @@ export function requestContext(headers: Headers): RequestContext {
   };
 }
 
-/** Origin / Fetch Metadata check for every cookie-authenticated or login mutation. */
+/** The host the browser sent the request to; proxies such as Netlify pass it on as x-forwarded-host. */
+function requestHosts(headers: Headers) {
+  return [headers.get("host"), headers.get("x-forwarded-host")?.split(",")[0]?.trim()].filter(Boolean);
+}
+
+/**
+ * Origin / Fetch Metadata check for every cookie-authenticated or login mutation. A page served
+ * from the same host it posts to always passes (localhost, a LAN address, a deploy preview);
+ * APP_ORIGIN and APP_ALLOWED_ORIGINS add other origins on top.
+ */
 export function assertSameOrigin(headers: Headers) {
   const origin = headers.get("origin");
-  const allowed = authConfig.origins.allowed;
   if (origin) {
-    if (allowed.includes(origin)) return;
+    if (authConfig.origins.allowed.includes(origin)) return;
+    if (URL.canParse(origin) && requestHosts(headers).includes(new URL(origin).host)) return;
   } else if (headers.get("sec-fetch-site") === "same-origin") {
     return;
   }

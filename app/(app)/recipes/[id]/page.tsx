@@ -1,14 +1,21 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeftIcon, MoonIcon, SunIcon } from "lucide-react";
+import { BanIcon, MoonIcon, SunIcon } from "lucide-react";
+import { BackButton } from "@/components/navigation";
 import { InsightList, NutritionPanel } from "@/components/nutrition";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { PrepDetails } from "@/components/prep-details";
 import { RecipeHeader } from "@/components/recipe-header";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { buttonVariants } from "@/components/ui/button";
 import { getAppState, getHistory } from "@/lib/data";
-import { INGREDIENTS, RECIPE_BY_ID, RECIPES, prepKinds, type Recipe } from "@/lib/recipes";
+import { INGREDIENTS, RECIPE_BY_ID, RECIPES, dislikedIn, prepKinds, type Recipe } from "@/lib/recipes";
 import type { AppState, HistoryEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -24,22 +31,16 @@ export default function RecipePage({ params }: PageProps<"/recipes/[id]">) {
   );
 }
 
+/** The recipe itself is a static catalog, so only your ratings and pantry wait on the database. */
 async function RecipeDetail({ params }: { params: PageProps<"/recipes/[id]">["params"] }) {
   const { id } = await params;
   const recipe = /^\d+$/.test(id) ? RECIPE_BY_ID[Number(id)] : undefined;
   if (!recipe) notFound();
-  const [state, history] = await Promise.all([getAppState(), getHistory()]);
-  const made = history.filter((h) => h.recipeId === recipe.id);
+  const prepped = prepKinds(recipe).some((k) => k !== "none");
 
   return (
-    <article className="flex flex-col gap-7">
-      <Link
-        href="/recipes"
-        className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-ml-2 self-start text-muted-foreground")}
-      >
-        <ArrowLeftIcon />
-        All recipes
-      </Link>
+    <article className="flex flex-col gap-6">
+      <BackButton fallback="/recipes" />
       <RecipeHeader recipe={recipe} eyebrow={`Breakfast #${recipe.id}`} />
       {recipe.tip && <p className="-mt-3 text-sm text-muted-foreground">{recipe.tip}</p>}
 
@@ -57,49 +58,99 @@ async function RecipeDetail({ params }: { params: PageProps<"/recipes/[id]">["pa
         </Link>
       </div>
 
-      <YourRatings recipeId={recipe.id} state={state} made={made} />
+      <Suspense fallback={<Placeholder className="h-24" />}>
+        <Personal recipe={recipe} />
+      </Suspense>
 
-      <Section title="What it does for you">
-        <InsightList recipe={recipe} />
-      </Section>
+      <Accordion defaultValue={["ingredients", "steps"]}>
+        {prepped && (
+          <AccordionItem value="prep">
+            <AccordionTrigger className="text-base">Advance prep</AccordionTrigger>
+            <AccordionContent>
+              <Suspense fallback={<PrepDetails recipe={recipe} />}>
+                <Prep recipe={recipe} />
+              </Suspense>
+            </AccordionContent>
+          </AccordionItem>
+        )}
 
-      <Section title="Nutrition per serving">
-        <NutritionPanel recipe={recipe} />
-      </Section>
+        <AccordionItem value="ingredients">
+          <AccordionTrigger className="text-base">Ingredients</AccordionTrigger>
+          <AccordionContent>
+            <Ingredients recipe={recipe} />
+          </AccordionContent>
+        </AccordionItem>
 
-      {prepKinds(recipe).some((k) => k !== "none") && (
-        <Section title="Advance prep">
-          <PrepDetails recipe={recipe} stock={state.stock} loadedAt={state.loadedAt} />
-        </Section>
-      )}
+        <AccordionItem value="steps">
+          <AccordionTrigger className="text-base">
+            {recipe.prep === "overnight" ? "In the morning" : "Steps"}
+          </AccordionTrigger>
+          <AccordionContent>
+            <ol className="flex flex-col gap-2.5">
+              {recipe.steps.map((s, i) => (
+                <li key={i} className="flex gap-3 text-sm leading-relaxed">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                    {i + 1}
+                  </span>
+                  {s}
+                </li>
+              ))}
+            </ol>
+          </AccordionContent>
+        </AccordionItem>
 
-      <Section title="Ingredients">
-        <Ingredients recipe={recipe} />
-      </Section>
+        <AccordionItem value="insights">
+          <AccordionTrigger className="text-base">What it does for you</AccordionTrigger>
+          <AccordionContent>
+            <InsightList recipe={recipe} />
+          </AccordionContent>
+        </AccordionItem>
 
-      <Section title={recipe.prep === "overnight" ? "In the morning" : "Steps"}>
-        <ol className="flex flex-col gap-2.5">
-          {recipe.steps.map((s, i) => (
-            <li key={i} className="flex gap-3 text-sm leading-relaxed">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                {i + 1}
-              </span>
-              {s}
-            </li>
-          ))}
-        </ol>
-      </Section>
+        <AccordionItem value="nutrition">
+          <AccordionTrigger className="text-base">Nutrition per serving</AccordionTrigger>
+          <AccordionContent>
+            <NutritionPanel recipe={recipe} />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </article>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+async function Prep({ recipe }: { recipe: Recipe }) {
+  const state = await getAppState();
+  return <PrepDetails recipe={recipe} stock={state.stock} loadedAt={state.loadedAt} />;
+}
+
+/** Your own history with this breakfast, plus a note if it's on your dislike list. */
+async function Personal({ recipe }: { recipe: Recipe }) {
+  const [state, history] = await Promise.all([getAppState(), getHistory()]);
+  const offList = dislikedIn(recipe, state.disliked);
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="font-heading text-xl font-semibold">{title}</h2>
-      {children}
-    </section>
+    <div className="flex flex-col gap-3">
+      {offList.length > 0 && (
+        <p className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm">
+          <BanIcon className="mt-0.5 size-4 shrink-0 text-warning" />
+          <span>
+            Hidden from suggestions: it uses{" "}
+            {offList.map((i) => INGREDIENTS[i].name.toLowerCase()).join(", ")}.{" "}
+            <Link href="/dislikes" className="font-medium underline underline-offset-2">
+              Change your dislikes
+            </Link>
+          </span>
+        </p>
+      )}
+      <YourRatings
+        recipeId={recipe.id}
+        state={state}
+        made={history.filter((h) => h.recipeId === recipe.id)}
+      />
+    </div>
   );
+}
+
+function Placeholder({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-xl bg-muted", className)} />;
 }
 
 function Ingredients({ recipe }: { recipe: Recipe }) {

@@ -147,6 +147,25 @@ export type RatingDoc = {
   updatedAt: Date;
 };
 
+/** Allergies and dislikes are personal, so this is keyed by user, not household. */
+/** A pantry item a household added by hand. `ingredientId` is `custom-<hex>`; `nameKey` keeps names unique. */
+export type CustomIngredientDoc = {
+  _id?: ObjectId;
+  householdId: ObjectId;
+  ingredientId: string;
+  name: string;
+  nameKey: string;
+  aisle: string;
+  createdAt: Date;
+  createdBy: ObjectId;
+};
+export type PreferencesDoc = {
+  _id?: ObjectId;
+  userId: ObjectId;
+  disliked: string[];
+  updatedAt: Date;
+};
+
 export const ACCESS_KINDS = ["login_success", "login_failure", "logout", "app_open", "session_revoked"] as const;
 export type AccessKind = (typeof ACCESS_KINDS)[number];
 
@@ -288,6 +307,8 @@ export const COLLECTIONS = {
   upcoming: "upcoming",
   history: "history",
   ratings: "ratings",
+  preferences: "preferences",
+  customIngredients: "custom_ingredients",
 } as const;
 
 const sessionIndexes: IndexDescription[] = [
@@ -352,6 +373,11 @@ export function indexSpecs(): Record<string, IndexDescription[]> {
     [COLLECTIONS.ratings]: [
       { key: { historyId: 1, userId: 1 }, unique: true },
       { key: { householdId: 1, recipeId: 1 } },
+    ],
+    [COLLECTIONS.preferences]: [{ key: { userId: 1 }, unique: true }],
+    [COLLECTIONS.customIngredients]: [
+      { key: { householdId: 1, ingredientId: 1 }, unique: true },
+      { key: { householdId: 1, nameKey: 1 }, unique: true },
     ],
   };
 }

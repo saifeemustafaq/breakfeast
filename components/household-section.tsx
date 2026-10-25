@@ -1,10 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { UsersIcon } from "lucide-react";
-import { logout } from "@/app/actions";
 import { cancelInvite, inviteToHousehold, leaveHousehold, respondToInvite } from "@/app/household-actions";
-import { clearActivity, flush } from "@/components/activity/logger";
 import { toast } from "@/components/activity/toast";
 import { PhoneInput } from "@/components/phone-input";
 import { Button } from "@/components/ui/button";
@@ -66,26 +63,7 @@ export function HouseholdSection({ view }: { view: HouseholdView }) {
   }
 
   return (
-    <section aria-labelledby="household-heading" className="flex flex-col gap-4 rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <UsersIcon className="size-4 text-muted-foreground" aria-hidden />
-        <h2 id="household-heading" className="font-heading text-lg font-semibold">
-          Household
-        </h2>
-        <form
-          action={logout}
-          onSubmit={() => {
-            void flush({ all: true });
-            clearActivity();
-          }}
-          className="ml-auto"
-        >
-          <Button variant="ghost" size="sm" type="submit" className="text-muted-foreground">
-            Sign out
-          </Button>
-        </form>
-      </div>
-
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-4">
       {view.incoming.map((inv) => (
         <div key={inv.id} className="flex flex-col gap-3 rounded-lg bg-muted p-3">
           <div>
@@ -233,6 +211,6 @@ export function HouseholdSection({ view }: { view: HouseholdView }) {
           )}
         </DialogContent>
       </Dialog>
-    </section>
+    </div>
   );
 }

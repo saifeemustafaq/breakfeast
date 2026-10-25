@@ -1,6 +1,15 @@
 "use client";
 
-import { CheckCircle2Icon, ChevronRightIcon, CookingPotIcon, MoonIcon, SunIcon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  CheckIcon,
+  ChevronRightIcon,
+  CookingPotIcon,
+  MoonIcon,
+  SunIcon,
+  XIcon,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +21,7 @@ import {
 import { INGREDIENTS, cookedAheadItems, prepKinds, recipeItems, type Recipe } from "@/lib/recipes";
 import { rememberedInStock } from "@/lib/stock";
 import { DAY } from "@/lib/time";
-import type { StockEntry } from "@/lib/types";
+import type { CheckStatus, StockEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type PrepFocus = "overnight" | "cookedAhead";
@@ -297,6 +306,101 @@ export function PrepDialog({
         </DialogHeader>
         <PrepDetails recipe={recipe} focus={focus} stock={stock} loadedAt={loadedAt} />
         {actions && <DialogFooter>{actions}</DialogFooter>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export type UncookedState = { recipeId: number; bases: Record<string, CheckStatus | undefined> };
+
+/**
+ * Not cooked yet is only half the answer: without the raw base, the cook task
+ * can't happen, so that goes on the shopping list too.
+ */
+export function UncookedDialog({
+  state,
+  pending,
+  onChange,
+  onConfirm,
+}: {
+  state: UncookedState | null;
+  pending?: boolean;
+  onChange: (state: UncookedState | null) => void;
+  onConfirm: (recipeId: number, bases: Record<string, CheckStatus | undefined>) => void;
+}) {
+  const bases = state ? Object.keys(state.bases) : [];
+  const answered = state && bases.every((id) => state.bases[id]);
+  const set = (id: string, value: CheckStatus) =>
+    state &&
+    onChange({
+      ...state,
+      bases: { ...state.bases, [id]: state.bases[id] === value ? undefined : value },
+    });
+
+  return (
+    <Dialog open={!!state} onOpenChange={(open) => !open && !pending && onChange(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Before we add the cook task</DialogTitle>
+          <DialogDescription>
+            Cooking it needs the raw ingredient. Tell us what&apos;s in the kitchen and anything
+            you&apos;re out of goes on the shopping list.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="flex flex-col gap-2">
+          {bases.map((id) => {
+            const answer = state?.bases[id];
+            return (
+              <li
+                key={id}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl border bg-card p-3 transition-colors",
+                  answer === "have" && "border-success/40 bg-success/5",
+                  answer === "missing" && "border-destructive/40 bg-destructive/5",
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium leading-tight">{INGREDIENTS[id].name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {answer === "missing" ? "Going on the shopping list" : "Do you have it?"}
+                  </p>
+                </div>
+                <div className="flex gap-1.5">
+                  <Button
+                    size="icon-lg"
+                    variant={answer === "have" ? "default" : "outline"}
+                    className={cn(answer === "have" && "bg-success hover:bg-success/90")}
+                    aria-label={`Have ${INGREDIENTS[id].name}`}
+                    aria-pressed={answer === "have"}
+                    onClick={() => set(id, "have")}
+                  >
+                    <CheckIcon />
+                  </Button>
+                  <Button
+                    size="icon-lg"
+                    variant={answer === "missing" ? "destructive" : "outline"}
+                    aria-label={`Out of ${INGREDIENTS[id].name}`}
+                    aria-pressed={answer === "missing"}
+                    onClick={() => set(id, "missing")}
+                  >
+                    <XIcon />
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <DialogFooter>
+          <Button
+            disabled={!answered || pending}
+            onClick={() => state && onConfirm(state.recipeId, state.bases)}
+          >
+            {pending ? "Saving…" : "Add to my cart and show the next one"}
+          </Button>
+          <Button variant="outline" disabled={pending} onClick={() => onChange(null)}>
+            Back
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

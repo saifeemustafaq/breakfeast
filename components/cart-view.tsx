@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
+  CircleMinusIcon,
   CookingPotIcon,
   CopyIcon,
   PlusIcon,
@@ -10,26 +11,43 @@ import {
   SparklesIcon,
   XIcon,
 } from "lucide-react";
-import { addToCart, completeCartItem, removeFromCart } from "@/app/actions";
+import { addToCart, completeCartItem, removeFromCart, removeManyFromCart } from "@/app/actions";
 import { track } from "@/components/activity/logger";
 import { toast } from "@/components/activity/toast";
+import { AddIngredientDialog } from "@/components/add-ingredient";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { failureMessage, unwrap, type ActionResult } from "@/lib/action-result";
-import { AISLE_ORDER, INGREDIENTS, RECIPE_BY_ID, RECIPES, checkableIds } from "@/lib/recipes";
+import { cartUnlocks, idsToRemoveFor, type CartUnlocks } from "@/lib/cart";
+import { ingredientsWith } from "@/lib/ingredients";
+import { ALL_INGREDIENTS, AISLE_ORDER, INGREDIENTS, RECIPE_BY_ID, visibleRecipes } from "@/lib/recipes";
 import { rememberedInStock } from "@/lib/stock";
-import type { AppState, CartItem } from "@/lib/types";
+import type { AddedIngredient, AppState, CartItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function CartView({ initial }: { initial: AppState }) {
   const [items, setItems] = useState(initial.cart);
   const [bought, setBought] = useState<string[]>([]);
+  const [dropping, setDropping] = useState<number | null>(null);
+  const [custom, setCustom] = useState(initial.custom);
+  const [adding, setAdding] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const ings = ingredientsWith(custom);
+  const known = [...ALL_INGREDIENTS, ...custom.map((c) => ings[c.id])];
   const inStock = (id: string) =>
     bought.includes(id) || rememberedInStock(id, initial.stock, initial.loadedAt);
   const buy = items.filter((i) => i.kind === "buy");
   const cook = items.filter((i) => i.kind === "cook");
+  const unlocks = cartUnlocks(items, inStock, visibleRecipes(initial.disliked));
 
   function run(
     optimistic: CartItem[],
@@ -57,7 +75,7 @@ export function CartView({ initial }: { initial: AppState }) {
     run(
       items.filter((i) => i.ingredientId !== id),
       () => completeCartItem(id),
-      `${INGREDIENTS[id].name} is now in stock`,
+      `${ings[id].name} is now in stock`,
       {
         apply: () => setBought((b) => [...b, id]),
         restore: () => setBought(previousBought),
@@ -72,6 +90,17 @@ export function CartView({ initial }: { initial: AppState }) {
     );
   }
 
+  function dropBreakfast(id: number) {
+    const ids = idsToRemoveFor(id, unlocks, items).remove;
+    setDropping(null);
+    if (!ids.length) return;
+    run(
+      items.filter((i) => !ids.includes(i.ingredientId)),
+      () => removeManyFromCart(ids),
+      `Removed what ${RECIPE_BY_ID[id].name} needed`,
+    );
+  }
+
   function addBase(id: string, forRecipes: number[]) {
     if (items.some((i) => i.ingredientId === id)) return;
     run(
@@ -81,11 +110,40 @@ export function CartView({ initial }: { initial: AppState }) {
     );
   }
 
+  function added(item: AddedIngredient, toCart: boolean) {
+    if (item.isNew) setCustom((c) => [...c, { id: item.id, name: item.name, aisle: item.aisle }]);
+    if (toCart && !items.some((i) => i.ingredientId === item.id)) {
+      setItems((list) => [
+        ...list,
+        {
+          ingredientId: item.id,
+          kind: INGREDIENTS[item.id]?.batch ? "cook" : "buy",
+          forRecipes: [],
+          addedAt: new Date().toISOString(),
+        },
+      ]);
+    }
+    setAdding(null);
+    toast.success(
+      toCart ? `Added ${item.name} to the cart and your pantry` : `Added ${item.name} to your pantry`,
+    );
+  }
+
+  const addDialog = (
+    <AddIngredientDialog
+      name={adding}
+      onClose={() => setAdding(null)}
+      defaultToCart
+      known={known}
+      onAdded={added}
+    />
+  );
+
   async function copyList() {
     const lines = AISLE_ORDER.flatMap((aisle) => {
-      const group = buy.filter((i) => INGREDIENTS[i.ingredientId].aisle === aisle);
+      const group = buy.filter((i) => ings[i.ingredientId].aisle === aisle);
       if (!group.length) return [];
-      return [`${aisle}:`, ...group.map((i) => `- ${INGREDIENTS[i.ingredientId].name}`), ""];
+      return [`${aisle}:`, ...group.map((i) => `- ${ings[i.ingredientId].name}`), ""];
     });
     try {
       await navigator.clipboard.writeText(lines.join("\n").trim());
@@ -104,9 +162,14 @@ export function CartView({ initial }: { initial: AppState }) {
         <p className="text-muted-foreground">
           Anything you&apos;re out of during a kitchen check lands here.
         </p>
+        <Button className="h-11" onClick={() => setAdding("")}>
+          <PlusIcon />
+          Add an item
+        </Button>
         <Link href="/plan" className={cn(buttonVariants({ variant: "outline" }), "h-11")}>
           Plan 3–4 breakfasts ahead
         </Link>
+        {addDialog}
       </section>
     );
   }
@@ -120,17 +183,22 @@ export function CartView({ initial }: { initial: AppState }) {
             Tick items as they go in the basket; they&apos;ll be marked in stock.
           </p>
         </div>
-        {buy.length > 0 && (
-          <Button variant="outline" size="icon-lg" aria-label="Copy list" onClick={copyList}>
-            <CopyIcon />
+        <div className="flex shrink-0 gap-2">
+          <Button variant="outline" size="icon-lg" aria-label="Add an item" onClick={() => setAdding("")}>
+            <PlusIcon />
           </Button>
-        )}
+          {buy.length > 0 && (
+            <Button variant="outline" size="icon-lg" aria-label="Copy list" onClick={copyList}>
+              <CopyIcon />
+            </Button>
+          )}
+        </div>
       </div>
 
-      <AfterShopping items={items} inStock={inStock} />
+      <AfterShopping unlocks={unlocks} onDrop={setDropping} />
 
       {AISLE_ORDER.filter((a) => a !== "Cooked ahead").map((aisle) => {
-        const group = buy.filter((i) => INGREDIENTS[i.ingredientId].aisle === aisle);
+        const group = buy.filter((i) => ings[i.ingredientId].aisle === aisle);
         if (!group.length) return null;
         return (
           <div key={aisle} className="flex flex-col gap-2">
@@ -139,7 +207,7 @@ export function CartView({ initial }: { initial: AppState }) {
             </p>
             <ul className="flex flex-col divide-y rounded-xl border bg-card">
               {group.map((item) => {
-                const ing = INGREDIENTS[item.ingredientId];
+                const ing = ings[item.ingredientId];
                 return (
                   <li key={item.ingredientId} className="flex items-center gap-3 p-3">
                     <Checkbox
@@ -231,39 +299,69 @@ export function CartView({ initial }: { initial: AppState }) {
           })}
         </div>
       )}
+
+      <Dialog open={dropping !== null} onOpenChange={(open) => !open && setDropping(null)}>
+        <DialogContent>
+          {dropping !== null && (
+            <DropBreakfast
+              recipeId={dropping}
+              removal={idsToRemoveFor(dropping, unlocks, items)}
+              onConfirm={() => dropBreakfast(dropping)}
+              onCancel={() => setDropping(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+      {addDialog}
     </section>
   );
 }
 
-function AfterShopping({
-  items,
-  inStock,
+function DropBreakfast({
+  recipeId,
+  removal,
+  onConfirm,
+  onCancel,
 }: {
-  items: CartItem[];
-  inStock: (id: string) => boolean;
+  recipeId: number;
+  removal: { remove: string[]; kept: string[] };
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
-  const inCart = (id: string, kind: CartItem["kind"]) =>
-    items.some((i) => i.ingredientId === id && i.kind === kind);
+  const names = (ids: string[]) => ids.map((id) => INGREDIENTS[id].name.toLowerCase()).join(", ");
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Remove {RECIPE_BY_ID[recipeId].name} from the cart?</DialogTitle>
+        <DialogDescription>
+          {removal.remove.length
+            ? `This takes ${names(removal.remove)} off the list.`
+            : "Everything it needs is also needed by another breakfast in the cart, so nothing will be removed."}
+          {removal.kept.length
+            ? ` Keeping ${names(removal.kept)} for the other breakfasts in the cart.`
+            : ""}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="destructive" disabled={!removal.remove.length} onClick={onConfirm}>
+          Remove {removal.remove.length} {removal.remove.length === 1 ? "item" : "items"}
+        </Button>
+        <Button variant="outline" onClick={onCancel}>
+          Keep it
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
 
-  const readyNow: number[] = [];
-  const afterShop: { id: number; shop: string[]; cook: string[] }[] = [];
-
-  for (const recipe of RECIPES) {
-    const shop: string[] = [];
-    const cook: string[] = [];
-    let blocked = false;
-    for (const id of checkableIds(recipe)) {
-      if (inStock(id)) continue;
-      const batch = INGREDIENTS[id].batch;
-      if (inCart(id, "buy")) shop.push(id);
-      else if (batch && inCart(id, "cook") && (inStock(batch.from) || inCart(batch.from, "buy"))) {
-        cook.push(id);
-      } else blocked = true;
-    }
-    if (blocked) continue;
-    if (shop.length + cook.length === 0) readyNow.push(recipe.id);
-    else afterShop.push({ id: recipe.id, shop, cook });
-  }
+function AfterShopping({
+  unlocks,
+  onDrop,
+}: {
+  unlocks: CartUnlocks;
+  onDrop: (recipeId: number) => void;
+}) {
+  const { afterShop, readyNow } = unlocks;
 
   return (
     <Card size="sm" className="bg-success/5 ring-success/20">
@@ -285,20 +383,31 @@ function AfterShopping({
           {afterShop.length > 0 && (
             <ul className="flex flex-col gap-2">
               {afterShop.map(({ id, shop, cook }) => (
-                <li key={id} className="text-sm">
-                  <p className="font-medium leading-tight">{RECIPE_BY_ID[id].name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {[
-                      shop.length
-                        ? `Needs ${shop.map((i) => INGREDIENTS[i].name.toLowerCase()).join(", ")}`
-                        : null,
-                      cook.length
-                        ? `then batch-cook ${cook.map((i) => INGREDIENTS[i].name.toLowerCase().replace(/^cooked /, "")).join(", ")}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(", ")}
-                  </p>
+                <li key={id} className="flex items-start gap-2 text-sm">
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    className="-ml-1 shrink-0 text-muted-foreground"
+                    aria-label={`Remove ${RECIPE_BY_ID[id].name} from the cart`}
+                    onClick={() => onDrop(id)}
+                  >
+                    <CircleMinusIcon />
+                  </Button>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium leading-tight">{RECIPE_BY_ID[id].name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        shop.length
+                          ? `Needs ${shop.map((i) => INGREDIENTS[i].name.toLowerCase()).join(", ")}`
+                          : null,
+                        cook.length
+                          ? `then batch-cook ${cook.map((i) => INGREDIENTS[i].name.toLowerCase().replace(/^cooked /, "")).join(", ")}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>

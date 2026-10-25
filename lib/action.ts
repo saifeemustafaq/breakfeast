@@ -1,10 +1,12 @@
 import "server-only";
+import { updateTag } from "next/cache";
 import { headers } from "next/headers";
 import { after } from "next/server";
 import type { z } from "zod";
 import type { ActionResult } from "@/lib/action-result";
 import { ApiError, STORAGE_MESSAGE } from "@/lib/auth/errors";
 import { requireUserAction, type UserAuth } from "@/lib/auth/guards";
+import { householdTag, userTag } from "@/lib/cache-tags";
 import { isStorageError } from "@/lib/db";
 import { recordWorkflow, traceFrom } from "@/lib/monitoring/activity";
 
@@ -47,6 +49,12 @@ export async function userAction<T>(
     result = await fn(auth);
   } catch (error) {
     result = { ok: false, error: messageFor(error, auth.ctx.requestId) };
+  }
+  // Every write touches the household's or the user's own data, so expire both: this also
+  // clears the client router cache, which is what makes the change show on the next tab.
+  if (result.ok) {
+    updateTag(householdTag(auth.user.householdId.toHexString()));
+    updateTag(userTag(auth.user._id.toHexString()));
   }
   const [success, failure] = event;
   after(() => recordWorkflow(auth, trace, result.ok ? success : failure, result.ok ? data : { ...data, error: result.error }));

@@ -2,10 +2,10 @@ import { averageNutrition, recipeNutrition } from "./nutrition";
 import {
   RECIPE_BY_ID,
   RECIPE_TRAITS,
-  RECIPES,
   TRAIT_LABELS,
   isDisliked,
   preferenceScore,
+  visibleRecipes,
   type Traits,
 } from "./recipes";
 import type { HistoryEntry, RecipeStats } from "./types";
@@ -73,18 +73,21 @@ export type Patterns = {
 export function analyzePatterns(
   history: HistoryEntry[],
   stats: Record<number, RecipeStats>,
+  disliked: Iterable<string> = [],
 ): Patterns {
   const rated = history.filter(isRated).filter((h) => RECIPE_BY_ID[h.recipeId]);
   const enoughData = rated.length >= MIN_RATED_TOTAL;
 
-  const scored = RECIPES.map((r) => ({ id: r.id, score: preferenceScore(stats[r.id]) })).filter(
+  // Suggestions only cover breakfasts you'd actually eat, but history still counts everything you did.
+  const offered = visibleRecipes(disliked);
+  const scored = offered.map((r) => ({ id: r.id, score: preferenceScore(stats[r.id]) })).filter(
     (r): r is { id: number; score: number } => r.score !== null,
   );
   const favorites = scored
     .filter((r) => r.score >= 4)
     .sort((a, b) => b.score - a.score)
     .map((r) => r.id);
-  const avoid = RECIPES.filter((r) => isDisliked(stats[r.id])).map((r) => r.id);
+  const avoid = offered.filter((r) => isDisliked(stats[r.id])).map((r) => r.id);
 
   const traits = enoughData
     ? (Object.keys(TRAIT_LABELS) as (keyof Traits)[])
@@ -116,7 +119,7 @@ export function analyzePatterns(
 
   return {
     tried: new Set(history.map((h) => h.recipeId).filter((id) => RECIPE_BY_ID[id])).size,
-    total: RECIPES.length,
+    total: offered.length,
     ratedMeals: rated.length,
     favorites,
     avoid,

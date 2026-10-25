@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   BookOpenIcon,
   CalendarDaysIcon,
@@ -14,15 +14,18 @@ import {
   SkipForwardIcon,
   SunIcon,
 } from "lucide-react";
-import { addManyToCart, clearTomorrow, markMade, planTomorrow, recordCheck } from "@/app/actions";
+import { clearTomorrow, markMade, planTomorrow, recordCheck } from "@/app/actions";
 import { toast } from "@/components/activity/toast";
 import { KitchenChecklist } from "@/components/kitchen-checklist";
+import { BackButton, goBack, scrollAppToTop } from "@/components/navigation";
 import { InsightCard, InsightTeaser, NutritionSnapshot } from "@/components/nutrition";
 import {
   PrepDialog,
   PrepStatus,
+  UncookedDialog,
   cookedAheadReady,
   type PrepFocus,
+  type UncookedState,
 } from "@/components/prep-details";
 import { RatingForm } from "@/components/rating-form";
 import { RecipeBadges, RecipeHeader } from "@/components/recipe-header";
@@ -35,11 +38,11 @@ import { recipeInsights } from "@/lib/nutrition";
 import {
   INGREDIENTS,
   RECIPE_BY_ID,
-  RECIPES,
   checkableIds,
   cookedAheadItems,
   rankRecipes,
   recipeItems,
+  visibleRecipes,
   type CheckScope,
 } from "@/lib/recipes";
 import { rememberedInStock } from "@/lib/stock";
@@ -62,11 +65,32 @@ type Step =
   | { name: "done" }
   | { name: "exhausted" };
 
+/** Everything Back has to restore, so stepping back shows the same suggestion as before. */
+type Frame = { step: Step; mode: Mode; pinned: number | null; skipped: number[] };
+
 function greeting(hour: number | null) {
   if (hour === null) return "Hello";
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
+}
+
+/**
+ * `?recipe=3&mode=tonight` (from a recipe page) jumps straight to that recipe. Read on the client
+ * because Next.js keeps a visited Today screen alive, and it must still react to the link.
+ */
+export function TodayFlow({ initial }: { initial: AppState }) {
+  const params = useSearchParams();
+  const recipeId = Number(params.get("recipe"));
+  const mode: Mode = params.get("mode") === "tonight" ? "tonight" : "now";
+  const startWith = RECIPE_BY_ID[recipeId] ? { recipeId, mode } : undefined;
+  return (
+    <BreakfastFlow
+      key={startWith ? `${recipeId}-${mode}` : "today"}
+      initial={initial}
+      startWith={startWith}
+    />
+  );
 }
 
 export function BreakfastFlow({
@@ -78,12 +102,20 @@ export function BreakfastFlow({
   startWith?: { recipeId: number; mode: Mode };
 }) {
   const hour = useHour();
-  const [mode, setMode] = useState<Mode>(startWith?.mode ?? "now");
-  const [step, setStep] = useState<Step>(startWith ? { name: "suggest" } : { name: "mode" });
-  const [pinned, setPinned] = useState<number | null>(startWith?.recipeId ?? null);
+  const router = useRouter();
+  const [nav, setNav] = useState<{ at: Frame; trail: Frame[] }>(() => ({
+    at: {
+      step: startWith ? { name: "suggest" } : { name: "mode" },
+      mode: startWith?.mode ?? "now",
+      pinned: startWith?.recipeId ?? null,
+      skipped: [],
+    },
+    trail: [],
+  }));
+  const { step, mode, pinned, skipped } = nav.at;
   const [prepOpen, setPrepOpen] = useState(false);
+  const [uncooked, setUncooked] = useState<UncookedState | null>(null);
   const [prepFocus, setPrepFocus] = useState<PrepFocus>("overnight");
-  const [skipped, setSkipped] = useState<number[]>([]);
   const [session, setSession] = useState<Record<string, CheckStatus>>({});
   const [stock, setStock] = useState(initial.stock);
   const [upcoming, setUpcoming] = useState(initial.upcoming);
@@ -94,8 +126,8 @@ export function BreakfastFlow({
     hour === null ? null : hour >= 4 && hour < 14 ? "now" : "tonight";
 
   const ranked = useMemo(
-    () => rankRecipes(initial.lastMade, initial.stats),
-    [initial.lastMade, initial.stats],
+    () => rankRecipes(initial.lastMade, initial.stats, initial.disliked),
+    [initial.lastMade, initial.stats, initial.disliked],
   );
 
   const knownMissing = (recipeId: number) =>
@@ -105,40 +137,111 @@ export function BreakfastFlow({
   const candidates = eligible.filter((id) => !skipped.includes(id) && !knownMissing(id));
   const autoSkipped = eligible.filter((id) => !skipped.includes(id) && knownMissing(id)).length;
 
-  function start(m: Mode) {
-    setMode(m);
-    setSkipped([]);
-    setPinned(null);
-    if (m === "now" && upcoming) setStep({ name: "upcoming" });
-    else setStep({ name: "suggest" });
+  /** Forward one screen; Back returns to exactly the screen you were on. */
+  function go(next: Step, patch: Partial<Omit<Frame, "step">> = {}) {
+    setNav(({ at, trail }) => ({ at: { ...at, ...patch, step: next }, trail: [...trail, at] }));
+    scrollAppToTop();
   }
 
-  /** Nothing cooked yet: queue the batch-cook tasks and move on. */
-  function skipUncooked(recipeId: number) {
-    const missing = cookedAheadItems(RECIPE_BY_ID[recipeId]).filter(
+  /** Swap the current screen without adding a Back step. */
+  function replace(next: Step) {
+    setNav(({ at, trail }) => ({ at: { ...at, step: next }, trail }));
+  }
+
+  /** Once something is saved (made, prepped, rated) there's nothing to step back into. */
+  function settle(next: Step) {
+    setNav(({ at }) => ({ at: { ...at, step: next }, trail: [] }));
+    scrollAppToTop();
+  }
+
+  function stepBack() {
+    if (nav.trail.length) {
+      setNav(({ trail }) => ({ at: trail[trail.length - 1], trail: trail.slice(0, -1) }));
+      scrollAppToTop();
+    } else if (startWith) {
+      goBack(router, `/recipes/${startWith.recipeId}`);
+    }
+  }
+
+  function restart() {
+    setNav(({ at }) => ({
+      at: { step: { name: "mode" }, mode: at.mode, pinned: null, skipped: [] },
+      trail: [],
+    }));
+    scrollAppToTop();
+  }
+
+  function start(m: Mode) {
+    go(m === "now" && upcoming ? { name: "upcoming" } : { name: "suggest" }, {
+      mode: m,
+      skipped: [],
+      pinned: null,
+    });
+  }
+
+  const uncookedItems = (recipeId: number) =>
+    cookedAheadItems(RECIPE_BY_ID[recipeId]).filter(
       (i) => !rememberedInStock(i.id, stock, initial.loadedAt),
     );
+
+  /** Nothing cooked yet: ask whether the raw bases are there before queueing the cook tasks. */
+  function skipUncooked(recipeId: number) {
+    const missing = uncookedItems(recipeId);
     setPrepOpen(false);
+    if (!missing.length) {
+      nextSuggestion(recipeId);
+      return;
+    }
+    setUncooked({
+      recipeId,
+      bases: Object.fromEntries(
+        missing.map((i) => [
+          INGREDIENTS[i.id].batch!.from,
+          rememberedInStock(INGREDIENTS[i.id].batch!.from, stock, initial.loadedAt)
+            ? ("have" as CheckStatus)
+            : undefined,
+        ]),
+      ),
+    });
+  }
+
+  /** Cook tasks for what isn't cooked, shopping items for the raw bases you're out of. */
+  function confirmUncooked(recipeId: number, bases: Record<string, CheckStatus | undefined>) {
+    const missing = [
+      ...uncookedItems(recipeId).map((i) => i.id),
+      ...Object.keys(bases).filter((id) => bases[id] === "missing"),
+    ];
+    const have = Object.keys(bases).filter((id) => bases[id] === "have");
+    setUncooked(null);
     nextSuggestion(recipeId);
-    if (!missing.length) return;
     startTransition(async () => {
       try {
-        await unwrap(addManyToCart(missing.map((i) => i.id), [recipeId]));
-        setCartCount((c) => c + missing.length);
-        toast.success(
-          `Added ${missing.map((i) => i.name.toLowerCase()).join(" and ")} to your batch-cook list`,
-        );
+        await unwrap(recordCheck({ have, missing, recipeIds: [recipeId] }));
       } catch (err) {
         toast.error(failureMessage(err, "Couldn't add the cook task. Check your connection."));
+        return;
       }
+      const now = new Date().toISOString();
+      const status = Object.fromEntries([
+        ...missing.map((id) => [id, "missing" as CheckStatus]),
+        ...have.map((id) => [id, "have" as CheckStatus]),
+      ]);
+      setSession((s) => ({ ...s, ...status }));
+      setStock((s) => ({
+        ...s,
+        ...Object.fromEntries(
+          Object.entries(status).map(([id, v]) => [id, { inStock: v === "have", updatedAt: now }]),
+        ),
+      }));
+      setCartCount((c) => c + missing.filter((id) => stock[id]?.inStock !== false).length);
+      toast.success(`Added ${missing.length} ${missing.length === 1 ? "thing" : "things"} to your cart`);
     });
   }
 
   function nextSuggestion(skipId?: number) {
     const nextSkipped = skipId ? [...skipped, skipId] : skipped;
-    setSkipped(nextSkipped);
     const remaining = eligible.filter((id) => !nextSkipped.includes(id) && !knownMissing(id));
-    setStep(remaining.length ? { name: "suggest" } : { name: "exhausted" });
+    go(remaining.length ? { name: "suggest" } : { name: "exhausted" }, { skipped: nextSkipped });
   }
 
   function beginCheck(recipeId: number, scope: CheckScope) {
@@ -147,26 +250,26 @@ export function BreakfastFlow({
       afterCheckPassed(recipeId, scope);
       return;
     }
-    setStep({ name: "check", recipeId, scope });
+    go({ name: "check", recipeId, scope });
   }
 
   function afterCheckPassed(recipeId: number, scope: CheckScope) {
     const recipe = RECIPE_BY_ID[recipeId];
     if (mode === "tonight") {
-      if (recipe.prep === "overnight") setStep({ name: "gather", recipeId, scope: "night" });
+      if (recipe.prep === "overnight") go({ name: "gather", recipeId, scope: "night" });
       else {
         startTransition(async () => {
           try {
             await unwrap(planTomorrow(recipeId, false));
             setUpcoming({ recipeId, needsPrep: false, createdAt: new Date().toISOString() });
-            setStep({ name: "tonightDone", recipeId, needsPrep: false });
+            settle({ name: "tonightDone", recipeId, needsPrep: false });
           } catch (err) {
             toast.error(failureMessage(err));
           }
         });
       }
     } else {
-      setStep({ name: "gather", recipeId, scope });
+      go({ name: "gather", recipeId, scope });
     }
   }
 
@@ -190,7 +293,7 @@ export function BreakfastFlow({
       }));
       const newToCart = missing.filter((id) => stock[id]?.inStock !== false);
       setCartCount((c) => c + newToCart.length);
-      if (missing.length) setStep({ name: "missed", recipeId, scope, missing });
+      if (missing.length) go({ name: "missed", recipeId, scope, missing });
       else afterCheckPassed(recipeId, scope);
     });
   }
@@ -200,7 +303,7 @@ export function BreakfastFlow({
       try {
         const historyId = await unwrap(markMade(recipeId));
         if (upcoming?.recipeId === recipeId) setUpcoming(null);
-        setStep({ name: "serve", recipeId, historyId });
+        settle({ name: "serve", recipeId, historyId });
       } catch (err) {
         toast.error(failureMessage(err));
       }
@@ -212,23 +315,22 @@ export function BreakfastFlow({
       try {
         await unwrap(planTomorrow(recipeId, true));
         setUpcoming({ recipeId, needsPrep: true, createdAt: new Date().toISOString() });
-        setStep({ name: "tonightDone", recipeId, needsPrep: true });
+        settle({ name: "tonightDone", recipeId, needsPrep: true });
       } catch (err) {
         toast.error(failureMessage(err));
       }
     });
   }
 
-  const back = step.name !== "mode" && (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="-ml-2 self-start text-muted-foreground"
-      onClick={() => setStep({ name: "mode" })}
-    >
-      <ArrowLeftIcon />
-      Start over
-    </Button>
+  const back = (nav.trail.length > 0 || startWith) && (
+    <div className="flex items-center justify-between">
+      <BackButton onClick={stepBack} />
+      {nav.trail.length > 1 && (
+        <Button variant="ghost" size="sm" className="-mr-2 h-10 text-muted-foreground" onClick={restart}>
+          Start over
+        </Button>
+      )}
+    </div>
   );
 
   switch (step.name) {
@@ -308,7 +410,7 @@ export function BreakfastFlow({
     case "upcoming": {
       const plan = upcoming;
       if (!plan) {
-        setStep({ name: "mode" });
+        replace({ name: "mode" });
         return null;
       }
       const recipe = RECIPE_BY_ID[plan.recipeId];
@@ -342,7 +444,7 @@ export function BreakfastFlow({
                   try {
                     await unwrap(clearTomorrow());
                     setUpcoming(null);
-                    setStep({ name: "suggest" });
+                    replace({ name: "suggest" });
                   } catch (err) {
                     toast.error(failureMessage(err));
                   }
@@ -451,6 +553,12 @@ export function BreakfastFlow({
             loadedAt={initial.loadedAt}
             actions={dialogActions}
           />
+          <UncookedDialog
+            state={uncooked}
+            pending={pending}
+            onChange={setUncooked}
+            onConfirm={confirmUncooked}
+          />
           {recipe.tip && <p className="text-sm text-muted-foreground">{recipe.tip}</p>}
 
           <NutritionSnapshot recipe={recipe} />
@@ -533,7 +641,7 @@ export function BreakfastFlow({
             <Button
               variant="link"
               className="self-center text-muted-foreground"
-              onClick={() => setStep({ name: "pickPrepped" })}
+              onClick={() => go({ name: "pickPrepped" })}
             >
               I prepped something last night
             </Button>
@@ -543,7 +651,7 @@ export function BreakfastFlow({
     }
 
     case "pickPrepped": {
-      const overnight = RECIPES.filter((r) => r.prep === "overnight");
+      const overnight = visibleRecipes(initial.disliked).filter((r) => r.prep === "overnight");
       return (
         <section className="flex flex-col gap-4">
           {back}
@@ -604,6 +712,7 @@ export function BreakfastFlow({
             }))}
             initial={initialStatus}
             remembered={remembered}
+            knownInStock={(id) => rememberedInStock(id, stock, initial.loadedAt)}
             missingLabel="Add missing to cart & try the next one"
             pending={pending}
             onSubmit={(status) => submitCheck(step.recipeId, step.scope, status)}
@@ -687,7 +796,7 @@ export function BreakfastFlow({
             size="lg"
             className="h-12 text-base"
             onClick={() =>
-              setStep({ name: "steps", recipeId: recipe.id, night: step.scope === "night" })
+              go({ name: "steps", recipeId: recipe.id, night: step.scope === "night" })
             }
           >
             Everything&apos;s out
@@ -746,7 +855,7 @@ export function BreakfastFlow({
               ? `${recipe.name} is prepped. Open the app in the morning and it'll walk you through the finishing touches.`
               : `Nothing to prep tonight for ${recipe.name}; the ingredients are confirmed. It'll be first up in the morning.`}
           </p>
-          <BottomLinks cartCount={cartCount} onRestart={() => setStep({ name: "mode" })} />
+          <BottomLinks cartCount={cartCount} onRestart={restart} />
         </section>
       );
     }
@@ -789,7 +898,7 @@ export function BreakfastFlow({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <RatingForm historyId={step.historyId} onDone={() => setStep({ name: "done" })} />
+              <RatingForm historyId={step.historyId} onDone={() => settle({ name: "done" })} />
             </CardContent>
           </Card>
         </section>
@@ -808,7 +917,7 @@ export function BreakfastFlow({
             <MoonIcon />
             Prep for tomorrow
           </Button>
-          <BottomLinks cartCount={cartCount} onRestart={() => setStep({ name: "mode" })} />
+          <BottomLinks cartCount={cartCount} onRestart={restart} />
         </section>
       );
 

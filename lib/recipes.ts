@@ -516,6 +516,25 @@ export function checkableIds(recipe: Recipe, scope: CheckScope = "all") {
     .filter((id) => !INGREDIENTS[id].always);
 }
 
+/**
+ * Ingredients you can mark as an allergy or dislike. Cooked-ahead forms are left
+ * out: ticking the raw ingredient already covers the batch made from it.
+ */
+export const DISLIKABLE = ALL_INGREDIENTS.filter((i) => !i.batch);
+
+/** Which of your disliked ingredients this recipe uses, counting batches as their raw base. */
+export function dislikedIn(recipe: Recipe, disliked: Iterable<string>) {
+  const set = disliked instanceof Set ? disliked : new Set(disliked);
+  const ids = recipe.ingredients.map((ri) => INGREDIENTS[ri.id].batch?.from ?? ri.id);
+  return [...new Set(ids.filter((id) => set.has(id)))];
+}
+
+/** The breakfasts you're willing to eat: everything that uses none of your disliked ingredients. */
+export function visibleRecipes(disliked: Iterable<string>, recipes: Recipe[] = RECIPES) {
+  const set = new Set(disliked);
+  return set.size ? recipes.filter((r) => dislikedIn(r, set).length === 0) : recipes;
+}
+
 export function usesCookedAhead(recipe: Recipe) {
   return recipe.ingredients.some((ri) => INGREDIENTS[ri.id].batch);
 }
@@ -593,13 +612,15 @@ export function sortByKitchen<T extends { id: string }>(items: T[]) {
 
 /**
  * Least-recently-made first; never-made recipes lead, and recipes rated
- * poorly across taste, feel and "again" drop to the end.
+ * poorly across taste, feel and "again" drop to the end. Anything using an
+ * ingredient you've marked as an allergy or dislike is left out entirely.
  */
 export function rankRecipes(
   lastMade: Record<number, string>,
   stats: Record<number, RecipeStats>,
+  disliked: Iterable<string> = [],
 ) {
-  return [...RECIPES]
+  return [...visibleRecipes(disliked)]
     .sort((a, b) => {
       const dislikedA = isDisliked(stats[a.id]) ? 1 : 0;
       const dislikedB = isDisliked(stats[b.id]) ? 1 : 0;

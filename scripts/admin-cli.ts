@@ -17,7 +17,15 @@ for (const file of [".env.local", ".env"]) {
 
 class CliError extends Error {}
 
-const APP_DATA = [COLLECTIONS.pantry, COLLECTIONS.cart, COLLECTIONS.upcoming, COLLECTIONS.history, COLLECTIONS.ratings];
+const APP_DATA = [
+  COLLECTIONS.pantry,
+  COLLECTIONS.cart,
+  COLLECTIONS.upcoming,
+  COLLECTIONS.history,
+  COLLECTIONS.ratings,
+  COLLECTIONS.preferences,
+  COLLECTIONS.customIngredients,
+];
 
 async function connect(): Promise<{ client: MongoClient; db: Db }> {
   const uri = process.env.MONGODB_URI;

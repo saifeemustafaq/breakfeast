@@ -16,5 +16,10 @@ export default function InsightsPage() {
 
 async function Insights() {
   const [state, history] = await Promise.all([getAppState(), getHistory()]);
-  return <PreferenceInsights patterns={analyzePatterns(history, state.stats)} history={history} />;
+  return (
+    <PreferenceInsights
+      patterns={analyzePatterns(history, state.stats, state.disliked)}
+      history={history}
+    />
+  );
 }

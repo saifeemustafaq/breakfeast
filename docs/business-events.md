@@ -6,7 +6,7 @@ A business event is a `workflow` row in `activity_events` that says what a perso
 
 ## How they're recorded
 
-- **Server Actions** record them. Each action in `app/actions.ts` and `app/household-actions.ts` runs through `userAction(event, data, fn)` in `lib/action.ts`, where `event` is a `[success, failure]` pair from the table below. After the response is sent (`after()`), `recordWorkflow` writes the success name, or the failure name with `data.error` set to the message the user saw. Recording never fails the action.
+- **Server Actions** record them. Each action in `app/actions.ts`, `app/household-actions.ts` and `app/preferences-actions.ts` runs through `userAction(event, data, fn)` in `lib/action.ts`, where `event` is a `[success, failure]` pair from the table below. After the response is sent (`after()`), `recordWorkflow` writes the success name, or the failure name with `data.error` set to the message the user saw. Recording never fails the action.
 - **The browser joins them to its timeline.** The fetch wrapper in `components/activity/auto-capture.ts` adds `x-bf-page-load`, `x-bf-seq` and `x-bf-path` to every Server Action request, so the server event lands in the same page-load group, in order, right after the click that caused it. Without those headers (an old tab, a script) the event is grouped under `server-<sessionId>`.
 - **Client-only workflows** (nothing reaches the server) call `track("workflow", name, data)` from `components/activity/logger.ts`.
 - Identity (`userId`, `sessionId`, `deviceId`) always comes from the session, never the client.
@@ -28,12 +28,16 @@ A business event is a `workflow` row in `activity_events` that says what a perso
 | `stock.set` | `stock.set_failed` | `setStock` | `ingredientId`, `inStock` |
 | `cart.added` | `cart.add_failed` | `addToCart`, `addManyToCart` | `ingredientIds`, `recipeIds` |
 | `cart.removed` | `cart.remove_failed` | `removeFromCart` | `ingredientId` |
+| `cart.removed_many` | `cart.remove_many_failed` | `removeManyFromCart` (dropping a breakfast) | `ingredientIds` |
+| `pantry.ingredient_added` | `pantry.ingredient_add_failed` | `addIngredient` (your own item, from Pantry or Cart) | `aisle`, `toCart` (the name is not logged) |
+| `pantry.ingredient_removed` | `pantry.ingredient_remove_failed` | `removeIngredient` | `ingredientId` |
 | `cart.completed` | `cart.complete_failed` | `completeCartItem` | `ingredientId` |
 | `household.invited` | `household.invite_failed` | `inviteToHousehold` | none (the number invited is not logged) |
 | `household.joined` | `household.join_failed` | `respondToInvite(id, true)` | none |
 | `household.declined` | `household.decline_failed` | `respondToInvite(id, false)` | none |
 | `household.invite_cancelled` | `household.cancel_failed` | `cancelInvite` | none |
 | `household.left` | `household.leave_failed` | `leaveHousehold` | none |
+| `preferences.disliked_set` | `preferences.disliked_set_failed` | `setDisliked` | `count` (the ingredients are not logged) |
 | `list.copied` | | `CartView` (client) | `items` (count) |
 
 Sign-in, sign-out, app opens and session revocations are **access events** (`access_events`), not business events. See `admin-panel-instructions.md` section 11.

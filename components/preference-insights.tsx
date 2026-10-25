@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { HeartIcon, InfoIcon, ThumbsDownIcon, ZapIcon } from "lucide-react";
+import { BackButton } from "@/components/navigation";
 import { NutritionLine } from "@/components/nutrition";
 import { Progress } from "@/components/ui/progress";
 import { NUTRIENTS, percentDV, type NutrientKey } from "@/lib/nutrition";
@@ -13,7 +14,8 @@ export function PreferenceInsights({ patterns, history }: { patterns: Patterns; 
   const p = patterns;
   return (
     <section className="flex flex-col gap-6">
-      <div>
+      <BackButton fallback="/recipes" />
+      <div className="-mt-4">
         <h1 className="font-heading text-3xl font-semibold">Your patterns</h1>
         <p className="mt-1 text-muted-foreground">Built from what you&apos;ve made and how you rated it.</p>
       </div>

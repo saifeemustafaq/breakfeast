@@ -14,6 +14,7 @@ import { recordPlanCheck } from "@/app/actions";
 import { toast } from "@/components/activity/toast";
 import { failureMessage, unwrap } from "@/lib/action-result";
 import { KitchenChecklist } from "@/components/kitchen-checklist";
+import { BackButton, scrollAppToTop } from "@/components/navigation";
 import { NutritionLine } from "@/components/nutrition";
 import { RecipeBadges } from "@/components/recipe-header";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -37,13 +38,18 @@ type Step =
 
 export function PlanFlow({ initial }: { initial: AppState }) {
   const ranked = useMemo(
-    () => rankRecipes(initial.lastMade, initial.stats),
-    [initial.lastMade, initial.stats],
+    () => rankRecipes(initial.lastMade, initial.stats, initial.disliked),
+    [initial.lastMade, initial.stats, initial.disliked],
   );
-  const [step, setStep] = useState<Step>({ name: "count" });
+  const [step, setScreen] = useState<Step>({ name: "count" });
   const [picked, setPicked] = useState<number[]>([]);
   const [rejected, setRejected] = useState<number[]>([]);
   const [pending, startTransition] = useTransition();
+
+  function setStep(next: Step) {
+    setScreen(next);
+    scrollAppToTop();
+  }
 
   function choose(n: number) {
     setPicked(ranked.slice(0, n));
@@ -99,6 +105,7 @@ export function PlanFlow({ initial }: { initial: AppState }) {
     case "pick":
       return (
         <section className="flex flex-col gap-5">
+          <BackButton onClick={() => setStep({ name: "count" })} />
           <div>
             <h1 className="font-heading text-2xl font-semibold">Your next {picked.length}</h1>
             <p className="mt-1 text-muted-foreground">
@@ -149,9 +156,6 @@ export function PlanFlow({ initial }: { initial: AppState }) {
             Go to the kitchen and check
             <ArrowRightIcon />
           </Button>
-          <Button variant="ghost" onClick={() => setStep({ name: "count" })}>
-            Back
-          </Button>
         </section>
       );
 
@@ -161,6 +165,7 @@ export function PlanFlow({ initial }: { initial: AppState }) {
       );
       return (
         <section className="flex flex-col gap-5">
+          <BackButton onClick={() => setStep({ name: "pick" })} />
           <div>
             <p className="text-xs font-semibold tracking-wide text-primary uppercase">
               Kitchen check
@@ -180,6 +185,7 @@ export function PlanFlow({ initial }: { initial: AppState }) {
               ingredientIds.map((id) => [id, remembered.has(id) ? "have" : undefined]),
             )}
             remembered={remembered}
+            knownInStock={(id) => rememberedInStock(id, initial.stock, initial.loadedAt)}
             submitLabel="Build my shopping list"
             pending={pending}
             onSubmit={(status) =>
@@ -314,6 +320,9 @@ export function PlanFlow({ initial }: { initial: AppState }) {
               Back to today
             </Link>
           )}
+          <Button variant="ghost" className="h-11" onClick={() => setStep({ name: "count" })}>
+            Plan another batch
+          </Button>
         </section>
       );
     }
