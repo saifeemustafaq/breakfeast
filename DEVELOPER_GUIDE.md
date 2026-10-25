@@ -85,6 +85,7 @@ breakfeast/
 │   ├── actions.ts                 # "use server": every user-app mutation (pantry, own items, cart, plan, history, ratings, logout)
 │   ├── household-actions.ts       # "use server": invite, respond, cancel, leave
 │   ├── preferences-actions.ts     # "use server": setDisliked (per user, not per household)
+│   ├── notes-actions.ts           # "use server": saveRecipeNote, deleteRecipeNote (one per recipe, per household)
 │   ├── (app)/                     # The phone app: viewport-pinned shell (AppMenu, scrolling main, BottomNav) + Toaster
 │   │   ├── layout.tsx, error.tsx
 │   │   ├── page.tsx               # Today: <TodayFlow> reads ?recipe=&mode=now|tonight on the client
@@ -96,6 +97,7 @@ breakfeast/
 │   │   ├── pantry/page.tsx        # Stock toggles
 │   │   ├── household/page.tsx     # Sharing, from the side menu
 │   │   ├── dislikes/page.tsx      # Allergies and dislikes, from the side menu
+│   │   ├── export/page.tsx        # Export and share, from the side menu (?preset=&recipes= deep links)
 │   │   └── login/                 # page.tsx + login-form.tsx (client). AppMenu and BottomNav hide themselves here
 │   ├── theadmin/                  # Admin panel (own CSS, no Tailwind)
 │   │   ├── layout.tsx, error.tsx, admin.css, gate.tsx (AdminGate server guard + AdminLoading)
@@ -123,13 +125,18 @@ breakfeast/
 │   ├── admin/                     # Admin client: api.ts (adminFetch, useAdminQuery, useCursorList), shell, ui, pages
 │   ├── activity/                  # Browser monitoring: logger, auto-capture, device + GPS, toast wrapper, provider
 │   ├── breakfast-flow.tsx         # Today state machine
+│   ├── flow-session.ts            # Today's Step/Frame types; the unfinished breakfast saved on this phone (Resume)
 │   ├── plan-flow.tsx, cart-view.tsx, pantry-view.tsx, household-section.tsx, dislikes-view.tsx
-│   ├── kitchen-checklist.tsx, prep-details.tsx, rating-form.tsx
+│   ├── kitchen-checklist.tsx, prep-details.tsx, rating-form.tsx (RatingForm, ScoreRows)
+│   ├── recipe-note.tsx            # RecipeNoteCard: read, add, edit, delete (with undo) a recipe's note
+│   ├── already-made.tsx           # AlreadyMadeDialog: "I made this recently" from a Today suggestion
 │   ├── recipe-header.tsx, recipe-library.tsx, nutrition.tsx, preference-insights.tsx
 │   ├── phone-input.tsx, page-skeleton.tsx, bottom-nav.tsx, app-menu.tsx
 │   ├── navigation.tsx             # APP_SCROLL_ID, NavTracker, BackButton, goBack(), scrollAppToTop()
 │   ├── search-field.tsx           # Sticky search input with a clear button
 │   ├── add-ingredient.tsx         # AddIngredientDialog: your own pantry item, optionally onto the cart
+│   ├── export-view.tsx            # ExportFlow: presets, options, preview, share/download/copy/print, saved setups
+│   ├── print-document.tsx         # PrintDocument (renders an export Doc) and PrintPortal (prints it)
 │   └── use-hour.ts                # Phone-local hour via useSyncExternalStore (null on the server)
 ├── lib/
 │   ├── recipes.ts                 # Catalog: ingredients, aisles, recipes, traits, ranking helpers (isomorphic)
@@ -138,6 +145,7 @@ breakfeast/
 │   ├── patterns.ts                # Preference analysis for /insights (isomorphic)
 │   ├── cart.ts                    # cartUnlocks(), idsToRemoveFor(): what the cart unlocks (isomorphic)
 │   ├── search.ts                  # matchesQuery(), recipeSearchText() (isomorphic)
+│   ├── export.ts                  # Export presets, buildExport(), text/Markdown/CSV/ICS/JSON renderers (isomorphic, pure)
 │   ├── ingredients.ts             # Own items: isCustomId(), ingredientsWith(), catalogByName(), CUSTOM_AISLES (isomorphic)
 │   ├── cache-tags.ts              # householdTag(), userTag(), CLIENT_STALE_SEC (isomorphic)
 │   ├── stock.ts                   # rememberedInStock: batch items expire after keepsDays
@@ -450,7 +458,7 @@ Built to section 11 of `admin-panel-instructions.md`; read it before changing a 
 
 ## 8. Households
 
-Every user belongs to exactly one household (`users.householdId`). **All breakfast data is scoped by household**: pantry, your own items, cart, the plan for tomorrow and history. **Ratings and dislikes are per user** within a household (`ratings` is unique on `historyId + userId`, `preferences` on `userId`), so two people can rate the same breakfast differently and hide different ingredients. `getAppState()` shows household-wide "made" counts and the signed-in user's own averages and dislikes.
+Every user belongs to exactly one household (`users.householdId`). **All breakfast data is scoped by household**: pantry, your own items, cart, the plan for tomorrow, recipe notes and history. **Ratings and dislikes are per user** within a household (`ratings` is unique on `historyId + userId`, `preferences` on `userId`), so two people can rate the same breakfast differently and hide different ingredients. `getAppState()` shows household-wide "made" counts and the signed-in user's own averages and dislikes.
 
 `createUser` gives each new user a fresh household of one.
 
@@ -505,6 +513,7 @@ Rules for this code:
 | `ratings` | unique `historyId + userId` | Taste, feel, again (1 to 5), optional note |
 | `preferences` | unique `userId` | `disliked`: ingredient ids this person won't eat |
 | `custom_ingredients` | unique `householdId + ingredientId`, unique `householdId + nameKey` | Items a household added by hand (`ingredientId` is `custom-<hex>`). They live in Pantry and Cart only, never in recipes |
+| `recipe_notes` | unique `householdId + recipeId` | The household's one note per recipe (`text`, `updatedAt`, `updatedBy`). Saving an empty note deletes it. On a household merge the target's note wins |
 | `access_events` | `userId + at`, partial `flags.0 + at`, TTL `expiresAt` (365 days) | Sign-in, sign-out, app open, revocation, with IP geo, GPS, device and flags |
 | `devices` | unique `userId + deviceId`, `userId + fingerprint` | One row per browser a user has used; kept while the user exists |
 | `activity_events` | `userId + clientAt`, `pageLoadId + seq`, TTL `receivedAt` (30 days) | Clicks, navigation, API calls, errors, toasts and business events |
@@ -512,7 +521,7 @@ Rules for this code:
 
 ### Resetting
 
-`npm run db:reset-app-data -- --yes` deletes pantry, cart, upcoming, history, ratings, preferences and custom ingredients for every household and recreates their indexes. It never touches accounts. `db:init` refuses to run if it finds breakfast rows without a `householdId` (data from before accounts existed).
+`npm run db:reset-app-data -- --yes` deletes pantry, cart, upcoming, history, ratings, preferences, custom ingredients and recipe notes for every household and recreates their indexes. It never touches accounts. `db:init` refuses to run if it finds breakfast rows without a `householdId` (data from before accounts existed).
 
 ---
 
@@ -579,10 +588,14 @@ Read `docs/nutrition-methodology.md` first. The short version:
 - **Only `main` scrolls.** `app/(app)/layout.tsx` pins the shell to the viewport (`fixed inset-0 flex flex-col`); the header and `BottomNav` are ordinary rows above and below `<main id={APP_SCROLL_ID}>`, which is the one scroll container (`overscroll-contain`, with `overscroll-behavior: none` on `html` and `body`). Rubber-banding can't drag the bars and nothing can slide under them. Don't use `position: fixed` or window scrolling in app pages; sticky elements stick to `main` (`sticky top-0` for search, `sticky bottom-0` for the checklist's submit bar). To scroll to the top after a step change, call `scrollAppToTop()`.
 - **Every screen that isn't a tab root has Back at the top.** Use `BackButton` from `components/navigation.tsx`. On pages it calls `router.back()` when there's in-app history (counted by `NavTracker`) and otherwise goes to `fallback`; `NavTracker` also puts lists back where you left them. Inside flows, pass `onClick`: `BreakfastFlow` keeps a trail of frames (step, mode, pinned and skipped recipes) so Back returns to the exact previous screen; screens reached after a save (made, prepped, rated) clear the trail. A flow opened from a recipe page steps back out to that recipe.
 - **Your own items.** Pantry ("Add an ingredient", or the no-match line of its search) and Cart (the plus button) open `AddIngredientDialog`. Adding always puts the item on the pantry list; the "Also add to the shopping cart" box (off from Pantry, on from Cart) decides between in stock and out of stock plus on the list. A name that matches a catalog or existing item reuses it. Screens that list pantry or cart entries look names up with `ingredientsWith(state.custom)`, not `INGREDIENTS`.
+- **One note per recipe, not comments.** `RecipeNoteCard` shows the household's note on the recipe page (with "Add a note for next time" when there isn't one) and, when one exists, on Today's suggestion, last night's plan, and the gather and steps screens, so it's in view while cooking. The rating form's text box edits that same note (prefilled); new ratings no longer carry their own note, and old rating notes stay in history and exports. Delete has an Undo toast instead of a confirm.
+- **Resume an unfinished breakfast.** Once Today reaches the kitchen check, missing, gather or steps screen, `BreakfastFlow` saves its `nav` (screen and Back trail) and the gather and step ticks to `localStorage` through `flow-session.ts`; the start screen then shows "Resume: X" with how far you got, plus Discard. It's per phone on purpose: an interrupted breakfast belongs to whoever was making it. A "now" session lasts 3 hours. A "tonight" session lasts 18 hours, except that the next morning an unfinished night prep becomes "Did you finish prepping X last night?" (Yes plans it as prepped and opens the morning screen; No discards it) and an unfinished night check is dropped. Reaching serve, tonightDone or done, "Start over" and Discard clear it. Kitchen check answers are saved to the server as they're submitted, so only the screen position and ticks need saving.
+- **"I made this recently."** A Today suggestion has this link: `AlreadyMadeDialog` logs the breakfast (`logBreakfast`, today up to three days back in the UI, six on the server) with an optional rating (all three scores or none) and the note, then shows the next suggestion. `BreakfastFlow` keeps `madeHere` so breakfasts made or logged on the screen drop down the ranking right away, since `initial.lastMade` was loaded before them.
 - **Long lists get a search field.** `SearchField` with `matchesQuery()` from `lib/search.ts` (every word must match, case and accents ignored) on Recipes (name, blurb, ingredients, traits), Pantry and Allergies and dislikes. Show a "No ... match" line when nothing does.
 - **Big touch targets.** Primary actions are `h-12 text-base`; secondary are `h-11`. Inputs on the login form are `h-12 text-base` so iOS doesn't zoom.
 - **Five tabs**, in this order: Today, Recipes, Plan, Cart, Pantry. `/insights` and `/recipes/[id]` highlight Recipes. A new top-level page either fits under an existing tab or replaces one; don't add a sixth.
-- **The side menu is for everything that isn't a tab.** `components/app-menu.tsx` is the top bar with the hamburger; it holds Household, Allergies and dislikes, and Sign out. Settings-shaped pages go there, not in the bottom nav. Like `BottomNav`, it hides itself on `/login`.
+- **The side menu is for everything that isn't a tab.** `components/app-menu.tsx` is the top bar with the hamburger; it holds Household, Allergies and dislikes, Export and share, and Sign out. Settings-shaped pages go there, not in the bottom nav. Like `BottomNav`, it hides itself on `/login`.
+- **Exports are built on the phone.** `/export` loads `getAppState()` and the full history once; `lib/export.ts` turns them into a `Doc` of blocks (title, heading, text, list, table, page break) per preset, and the renderers turn that one `Doc` into text, Markdown, CSV (with a byte-order mark for Excel) or the print layout. The calendar (`.ics`, floating local times, prep reminders with an alarm) and the JSON backup have their own builders. Nothing goes through the server, so a new preset is a builder in `lib/export.ts`, an entry in `PRESETS`, an icon and an options case in `export-view.tsx`. Printing mounts `PrintPortal` on `body` with `.print-root`, and the print CSS in `globals.css` hides everything else. Rating notes are left out unless "Include rating notes" is ticked. Saved setups and the last one used are kept in `localStorage` on that phone only. Link to a preset with `/export?preset=recipes&recipes=1,4`.
 - **Long reference content collapses.** The recipe page leads with the title, blurb, the two action buttons and your ratings, then an `Accordion` with Advance prep, Ingredients, In the morning, What it does for you and Nutrition per serving. Ingredients and steps start open (`defaultValue`) because they are what you came for.
 - **Headings** use `font-heading` (`text-3xl` page titles, `text-xl` sections). Secondary text is `text-muted-foreground`.
 - **Cards and lists:** `rounded-xl border bg-card`, `divide-y` for rows, `bg-muted/60` for soft callouts, `bg-primary/5 ring-primary/20` for the "planned for tomorrow" highlight.

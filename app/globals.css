@@ -144,3 +144,22 @@
     overscroll-behavior: none;
   }
 }
+
+/* Exports print from a portal on body; everything else, including the fixed app shell, is hidden. */
+.print-root {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 16mm;
+  }
+  body > *:not(.print-root) {
+    display: none !important;
+  }
+  .print-root {
+    display: block;
+    color: var(--foreground);
+    background: var(--background);
+  }
+}

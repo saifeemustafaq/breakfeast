@@ -25,6 +25,7 @@ const APP_DATA = [
   COLLECTIONS.ratings,
   COLLECTIONS.preferences,
   COLLECTIONS.customIngredients,
+  COLLECTIONS.recipeNotes,
 ];
 
 async function connect(): Promise<{ client: MongoClient; db: Db }> {

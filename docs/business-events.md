@@ -37,8 +37,12 @@ A business event is a `workflow` row in `activity_events` that says what a perso
 | `household.declined` | `household.decline_failed` | `respondToInvite(id, false)` | none |
 | `household.invite_cancelled` | `household.cancel_failed` | `cancelInvite` | none |
 | `household.left` | `household.leave_failed` | `leaveHousehold` | none |
+| `breakfast.logged` | `breakfast.log_failed` | `logBreakfast` ("I made this recently") | `recipeId`, `daysAgo`, `rated` |
+| `recipe.note_saved` | `recipe.note_save_failed` | `saveRecipeNote` (an empty note deletes it) | `recipeId` (the text is not logged) |
+| `recipe.note_deleted` | `recipe.note_delete_failed` | `deleteRecipeNote` | `recipeId` |
 | `preferences.disliked_set` | `preferences.disliked_set_failed` | `setDisliked` | `count` (the ingredients are not logged) |
 | `list.copied` | | `CartView` (client) | `items` (count) |
+| `export.created` | | `ExportView` (client) | `preset`, `format`, `delivery` (share, download, copy or print), `rows` (count). The content is not logged |
 
 Sign-in, sign-out, app opens and session revocations are **access events** (`access_events`), not business events. See `admin-panel-instructions.md` section 11.
 

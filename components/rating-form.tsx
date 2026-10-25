@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { rateBreakfast } from "@/app/actions";
+import { saveRecipeNote } from "@/app/notes-actions";
 import { toast } from "@/components/activity/toast";
+import { NOTE_MAX, NOTE_PLACEHOLDER } from "@/components/recipe-note";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { failureMessage, unwrap } from "@/lib/action-result";
 import { cn } from "@/lib/utils";
@@ -20,39 +23,18 @@ const QUESTIONS = [
 ] as const;
 
 type Key = (typeof QUESTIONS)[number]["key"];
+export type Scores = Partial<Record<Key, number>>;
+export type Rating = Record<Key, number>;
 
-export function RatingForm({ historyId, onDone }: { historyId: string; onDone: () => void }) {
-  const [scores, setScores] = useState<Partial<Record<Key, number>>>({});
-  const [note, setNote] = useState("");
-  const [pending, startTransition] = useTransition();
-  const complete = QUESTIONS.every((q) => scores[q.key]);
+/** All three answered, or null. */
+export function completeRating(scores: Scores): Rating | null {
+  const { taste, feel, again } = scores;
+  return taste && feel && again ? { taste, feel, again } : null;
+}
 
-  function save() {
-    if (!complete) return;
-    const taste = scores.taste;
-    const feel = scores.feel;
-    const again = scores.again;
-    if (taste === undefined || feel === undefined || again === undefined) return;
-    startTransition(async () => {
-      try {
-        await unwrap(
-          rateBreakfast(historyId, {
-            taste,
-            feel,
-            again,
-            note: note.trim() || undefined,
-          }),
-        );
-        toast.success("Rating saved");
-        onDone();
-      } catch (err) {
-        toast.error(failureMessage(err, "Couldn't save the rating. Try again."));
-      }
-    });
-  }
-
+export function ScoreRows({ scores, onChange }: { scores: Scores; onChange: (s: Scores) => void }) {
   return (
-    <div className="flex flex-col gap-5">
+    <>
       {QUESTIONS.map((q) => (
         <div key={q.key} className="flex flex-col gap-2">
           <p className="text-sm font-medium">{q.label}</p>
@@ -60,10 +42,11 @@ export function RatingForm({ historyId, onDone }: { historyId: string; onDone: (
             {[1, 2, 3, 4, 5].map((n) => (
               <Button
                 key={n}
+                type="button"
                 variant={scores[q.key] === n ? "default" : "outline"}
                 className={cn("h-11 text-base")}
                 aria-pressed={scores[q.key] === n}
-                onClick={() => setScores((s) => ({ ...s, [q.key]: n }))}
+                onClick={() => onChange({ ...scores, [q.key]: n })}
               >
                 {n}
               </Button>
@@ -75,16 +58,73 @@ export function RatingForm({ historyId, onDone }: { historyId: string; onDone: (
           </div>
         </div>
       ))}
-      <Textarea
-        placeholder='Notes, e.g. "less thick", "smaller serving", "good on workout mornings"'
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-      />
+    </>
+  );
+}
+
+/** Rates one breakfast. The text box edits the recipe's note, so it's there next time. */
+export function RatingForm({
+  historyId,
+  recipeId,
+  note = "",
+  onNoteSaved,
+  onDone,
+}: {
+  historyId: string;
+  recipeId: number;
+  note?: string;
+  onNoteSaved?: (text: string) => void;
+  onDone: () => void;
+}) {
+  const id = useId();
+  const [scores, setScores] = useState<Scores>({});
+  const [draft, setDraft] = useState(note);
+  const [pending, startTransition] = useTransition();
+  const rating = completeRating(scores);
+  const noteChanged = draft.trim() !== note.trim();
+
+  async function saveNote() {
+    if (!noteChanged) return;
+    await unwrap(saveRecipeNote(recipeId, draft));
+    onNoteSaved?.(draft.trim());
+  }
+
+  function finish(withRating: boolean) {
+    if (withRating && !rating) return;
+    startTransition(async () => {
+      try {
+        if (withRating && rating) await unwrap(rateBreakfast(historyId, rating));
+        await saveNote();
+        if (withRating) toast.success("Rating saved");
+        else if (noteChanged) toast.success("Note saved");
+        onDone();
+      } catch (err) {
+        toast.error(failureMessage(err, "Couldn't save. Try again."));
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <ScoreRows scores={scores} onChange={setScores} />
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-note`}>Note for next time</Label>
+        <Textarea
+          id={`${id}-note`}
+          maxLength={NOTE_MAX}
+          placeholder={NOTE_PLACEHOLDER}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          One note per recipe, shown whenever it comes up. Your household sees it too.
+        </p>
+      </div>
       <div className="flex gap-2">
-        <Button variant="ghost" className="h-11 flex-1" onClick={onDone}>
-          Skip
+        <Button variant="ghost" className="h-11 flex-1" disabled={pending} onClick={() => finish(false)}>
+          {noteChanged ? "Save note only" : "Skip"}
         </Button>
-        <Button className="h-11 flex-1" disabled={!complete || pending} onClick={save}>
+        <Button className="h-11 flex-1" disabled={!rating || pending} onClick={() => finish(true)}>
           {pending ? "Saving…" : "Save rating"}
         </Button>
       </div>

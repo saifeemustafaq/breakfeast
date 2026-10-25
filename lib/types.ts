@@ -8,6 +8,8 @@ export type CustomIngredient = { id: string; name: string; aisle: Aisle };
 /** What `addIngredient` resolved the typed name to: an existing item, or a new one of yours. */
 export type AddedIngredient = CustomIngredient & { custom: boolean; isNew: boolean };
 
+export type RecipeNote = { text: string; updatedAt: string };
+
 export type CartItem = {
   ingredientId: string;
   kind: "buy" | "cook";
@@ -31,6 +33,8 @@ export type AppState = {
   disliked: string[];
   /** The household's own pantry items, beyond the recipe catalog. */
   custom: CustomIngredient[];
+  /** The household's note for each recipe that has one. */
+  notes: Record<number, RecipeNote>;
   loadedAt: number;
 };
 

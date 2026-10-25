@@ -24,7 +24,7 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
   const user = { _id: new ObjectId(userIdHex) };
   const c = await collections();
 
-  const [pantry, cart, upcoming, lastMade, ratings, prefs, custom] = await Promise.all([
+  const [pantry, cart, upcoming, lastMade, ratings, prefs, custom, notes] = await Promise.all([
     c.pantry.find({ householdId }).toArray(),
     c.cart.find({ householdId }).sort({ addedAt: 1 }).toArray(),
     c.upcoming.findOne({ householdId }),
@@ -59,6 +59,7 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
       .toArray(),
     c.preferences.findOne({ userId: user._id }),
     c.customIngredients.find({ householdId }).sort({ nameKey: 1 }).toArray(),
+    c.recipeNotes.find({ householdId }).toArray(),
   ]);
 
   const stats: Record<number, RecipeStats> = {};
@@ -100,6 +101,7 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
     stats,
     disliked: prefs?.disliked ?? [],
     custom: custom.map((i) => ({ id: i.ingredientId, name: i.name, aisle: i.aisle as Aisle })),
+    notes: Object.fromEntries(notes.map((n) => [n.recipeId, { text: n.text, updatedAt: n.updatedAt.toISOString() }])),
     loadedAt,
   };
 }
