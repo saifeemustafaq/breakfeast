@@ -1,12 +1,13 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BanIcon, MoonIcon, SunIcon } from "lucide-react";
+import { BanIcon, MoonIcon, Share2Icon, SunIcon } from "lucide-react";
 import { BackButton } from "@/components/navigation";
 import { InsightList, NutritionPanel } from "@/components/nutrition";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { PrepDetails } from "@/components/prep-details";
 import { RecipeHeader } from "@/components/recipe-header";
+import { RecipeNoteCard } from "@/components/recipe-note";
 import {
   Accordion,
   AccordionContent,
@@ -55,6 +56,13 @@ async function RecipeDetail({ params }: { params: PageProps<"/recipes/[id]">["pa
         >
           <MoonIcon />
           {recipe.prep === "overnight" ? "Prep it tonight" : "Plan for tomorrow"}
+        </Link>
+        <Link
+          href={`/export?preset=recipes&recipes=${recipe.id}`}
+          className={cn(buttonVariants({ variant: "ghost" }), "col-span-2 h-11 text-muted-foreground")}
+        >
+          <Share2Icon />
+          Share or print this recipe
         </Link>
       </div>
 
@@ -122,7 +130,7 @@ async function Prep({ recipe }: { recipe: Recipe }) {
   return <PrepDetails recipe={recipe} stock={state.stock} loadedAt={state.loadedAt} />;
 }
 
-/** Your own history with this breakfast, plus a note if it's on your dislike list. */
+/** Your own history with this breakfast, the household's note, and a warning if it's on your dislike list. */
 async function Personal({ recipe }: { recipe: Recipe }) {
   const [state, history] = await Promise.all([getAppState(), getHistory()]);
   const offList = dislikedIn(recipe, state.disliked);
@@ -145,6 +153,7 @@ async function Personal({ recipe }: { recipe: Recipe }) {
         state={state}
         made={history.filter((h) => h.recipeId === recipe.id)}
       />
+      <RecipeNoteCard recipeId={recipe.id} note={state.notes[recipe.id]} />
     </div>
   );
 }
@@ -216,8 +225,10 @@ function YourRatings({
       ) : (
         <p className="text-sm text-muted-foreground">No ratings yet.</p>
       )}
-      {stats.lastNote && (
-        <p className="text-sm italic text-muted-foreground">&ldquo;{stats.lastNote}&rdquo;</p>
+      {stats.lastNote && !state.notes[recipeId] && (
+        <p className="text-sm text-muted-foreground">
+          From your last rating: <span className="italic">&ldquo;{stats.lastNote}&rdquo;</span>
+        </p>
       )}
     </div>
   );

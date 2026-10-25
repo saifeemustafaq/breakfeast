@@ -147,7 +147,6 @@ export type RatingDoc = {
   updatedAt: Date;
 };
 
-/** Allergies and dislikes are personal, so this is keyed by user, not household. */
 /** A pantry item a household added by hand. `ingredientId` is `custom-<hex>`; `nameKey` keeps names unique. */
 export type CustomIngredientDoc = {
   _id?: ObjectId;
@@ -159,6 +158,18 @@ export type CustomIngredientDoc = {
   createdAt: Date;
   createdBy: ObjectId;
 };
+
+/** The household's one note per recipe ("too tangy, add honey"), shown whenever it comes up. */
+export type RecipeNoteDoc = {
+  _id?: ObjectId;
+  householdId: ObjectId;
+  recipeId: number;
+  text: string;
+  updatedAt: Date;
+  updatedBy: ObjectId;
+};
+
+/** Allergies and dislikes are personal, so this is keyed by user, not household. */
 export type PreferencesDoc = {
   _id?: ObjectId;
   userId: ObjectId;
@@ -309,6 +320,7 @@ export const COLLECTIONS = {
   ratings: "ratings",
   preferences: "preferences",
   customIngredients: "custom_ingredients",
+  recipeNotes: "recipe_notes",
 } as const;
 
 const sessionIndexes: IndexDescription[] = [
@@ -379,6 +391,7 @@ export function indexSpecs(): Record<string, IndexDescription[]> {
       { key: { householdId: 1, ingredientId: 1 }, unique: true },
       { key: { householdId: 1, nameKey: 1 }, unique: true },
     ],
+    [COLLECTIONS.recipeNotes]: [{ key: { householdId: 1, recipeId: 1 }, unique: true }],
   };
 }
 

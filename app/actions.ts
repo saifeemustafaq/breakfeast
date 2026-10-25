@@ -11,6 +11,7 @@ import { collections, isDuplicateKey } from "@/lib/db";
 import { CUSTOM_AISLES, catalogByName, cleanName, isCustomId, nameKey } from "@/lib/ingredients";
 import { checkableIds, INGREDIENTS, RECIPE_BY_ID } from "@/lib/recipes";
 import type { CustomIngredientDoc } from "@/lib/schema";
+import { DAY } from "@/lib/time";
 import type { AddedIngredient } from "@/lib/types";
 
 const isIngredient = (id: unknown): id is string =>
@@ -198,6 +199,49 @@ export async function markMade(recipe: number): Promise<ActionResult<string>> {
     await c.upcoming.deleteOne({ householdId: user.householdId, recipeId: id });
     return done(insertedId.toHexString());
   });
+}
+
+const logInput = z.object({
+  recipeId,
+  daysAgo: z.number({ error: "Choose when you made it." }).int().min(0).max(6),
+  rating: z.object({ taste: score, feel: score, again: score }).optional(),
+});
+
+/**
+ * "I made this recently": records a breakfast made outside the flow, today or up to six days
+ * back, with an optional rating. Returns the new history id.
+ */
+export async function logBreakfast(input: {
+  recipeId: number;
+  daysAgo: number;
+  rating?: { taste: number; feel: number; again: number };
+}): Promise<ActionResult<string>> {
+  return userAction(
+    ["breakfast.logged", "breakfast.log_failed"],
+    { recipeId: input?.recipeId, daysAgo: input?.daysAgo, rated: !!input?.rating },
+    async ({ user }) => {
+      const { recipeId: id, daysAgo, rating } = parseInput(logInput, input);
+      const now = new Date();
+      const c = await collections();
+      const { insertedId } = await c.history.insertOne({
+        householdId: user.householdId,
+        recipeId: id,
+        madeAt: new Date(now.getTime() - daysAgo * DAY),
+        madeBy: user._id,
+      });
+      if (rating) {
+        await c.ratings.insertOne({
+          householdId: user.householdId,
+          historyId: insertedId,
+          userId: user._id,
+          recipeId: id,
+          ...rating,
+          updatedAt: now,
+        });
+      }
+      return done(insertedId.toHexString());
+    },
+  );
 }
 
 /** Each household member keeps their own rating of a breakfast. */

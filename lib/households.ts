@@ -15,7 +15,7 @@ export const livePending = (now = new Date()) => ({ status: "pending" as const, 
 /**
  * Folds `fromId`'s data into `intoId` and deletes `fromId`:
  * pantry keeps the most recently updated entry, cart items and their recipes are combined,
- * history and ratings move over, and the target's plan for tomorrow wins if it has one.
+ * history and ratings move over, and the target's plan for tomorrow and recipe notes win where both have one.
  * Hand-added items move too; one the target already has by name takes over the target's id.
  */
 async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: ObjectId) {
@@ -67,6 +67,17 @@ async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: Obje
   }
 
   await mergeHistory({ c, session, now }, fromId, intoId);
+
+  const dstNotes = new Set(
+    (await c.recipeNotes.find({ householdId: intoId }, { session, projection: { recipeId: 1 } }).toArray()).map((n) => n.recipeId),
+  );
+  await c.recipeNotes.updateMany(
+    { householdId: fromId, recipeId: { $nin: [...dstNotes] } },
+    { $set: { householdId: intoId } },
+    { session },
+  );
+  await c.recipeNotes.deleteMany({ householdId: fromId }, { session });
+
   await c.pantry.deleteMany({ householdId: fromId }, { session });
   await c.cart.deleteMany({ householdId: fromId }, { session });
   await c.upcoming.deleteMany({ householdId: fromId }, { session });
@@ -131,7 +142,7 @@ async function mergeHistory({ c, session }: Tx, fromId: ObjectId, intoId: Object
 }
 
 /**
- * Gives `user` a new household holding a copy of `fromId`'s own items, pantry, cart, plan and history.
+ * Gives `user` a new household holding a copy of `fromId`'s own items, pantry, cart, plan, recipe notes and history.
  * The user's own ratings move with them; everyone else's stay behind.
  */
 async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId): Promise<ObjectId> {
@@ -173,6 +184,13 @@ async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId)
         forRecipes: item.forRecipes,
         addedAt: item.addedAt,
       })),
+      { session },
+    );
+  }
+  const notes = await c.recipeNotes.find({ householdId: fromId }, { session }).toArray();
+  if (notes.length) {
+    await c.recipeNotes.insertMany(
+      notes.map((n) => ({ householdId: newId, recipeId: n.recipeId, text: n.text, updatedAt: n.updatedAt, updatedBy: n.updatedBy })),
       { session },
     );
   }

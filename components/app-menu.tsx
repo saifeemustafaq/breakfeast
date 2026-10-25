@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BanIcon, LogOutIcon, MenuIcon, UsersIcon } from "lucide-react";
+import { BanIcon, LogOutIcon, MenuIcon, Share2Icon, UsersIcon } from "lucide-react";
 import { logout } from "@/app/actions";
 import { clearActivity, flush } from "@/components/activity/logger";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 const LINKS = [
   { href: "/household", label: "Household", icon: UsersIcon, hint: "Share with someone else" },
   { href: "/dislikes", label: "Allergies & dislikes", icon: BanIcon, hint: "Hide breakfasts you won't eat" },
+  { href: "/export", label: "Export & share", icon: Share2Icon, hint: "Lists, diary, recipes, calendar, backup" },
 ] as const;
 
 /** Top bar with the hamburger, and the side menu it opens. */

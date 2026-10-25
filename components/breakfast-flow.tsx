@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -9,13 +9,32 @@ import {
   CalendarDaysIcon,
   CheckCircle2Icon,
   ChartNoAxesColumnIcon,
+  HistoryIcon,
   MoonIcon,
+  PlayIcon,
   ShoppingCartIcon,
   SkipForwardIcon,
   SunIcon,
 } from "lucide-react";
 import { clearTomorrow, markMade, planTomorrow, recordCheck } from "@/app/actions";
 import { toast } from "@/components/activity/toast";
+import { AlreadyMadeDialog, type LoggedBreakfast } from "@/components/already-made";
+import {
+  NO_PROGRESS,
+  clearSession,
+  describeSession,
+  isFinished,
+  isUnderway,
+  saveSession,
+  startedAgo,
+  useSavedSession,
+  type Frame,
+  type Mode,
+  type Nav,
+  type Progress,
+  type SavedSession,
+  type Step,
+} from "@/components/flow-session";
 import { KitchenChecklist } from "@/components/kitchen-checklist";
 import { BackButton, goBack, scrollAppToTop } from "@/components/navigation";
 import { InsightCard, InsightTeaser, NutritionSnapshot } from "@/components/nutrition";
@@ -28,6 +47,7 @@ import {
   type UncookedState,
 } from "@/components/prep-details";
 import { RatingForm } from "@/components/rating-form";
+import { RecipeNoteCard } from "@/components/recipe-note";
 import { RecipeBadges, RecipeHeader } from "@/components/recipe-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,27 +66,8 @@ import {
   type CheckScope,
 } from "@/lib/recipes";
 import { rememberedInStock } from "@/lib/stock";
-import type { AppState, CheckStatus } from "@/lib/types";
+import type { AppState, CheckStatus, RecipeNote } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-export type Mode = "now" | "tonight";
-
-type Step =
-  | { name: "mode" }
-  | { name: "upcoming" }
-  | { name: "suggest" }
-  | { name: "pickPrepped" }
-  | { name: "check"; recipeId: number; scope: CheckScope }
-  | { name: "missed"; recipeId: number; scope: CheckScope; missing: string[] }
-  | { name: "gather"; recipeId: number; scope: CheckScope }
-  | { name: "steps"; recipeId: number; night: boolean }
-  | { name: "tonightDone"; recipeId: number; needsPrep: boolean }
-  | { name: "serve"; recipeId: number; historyId: string }
-  | { name: "done" }
-  | { name: "exhausted" };
-
-/** Everything Back has to restore, so stepping back shows the same suggestion as before. */
-type Frame = { step: Step; mode: Mode; pinned: number | null; skipped: number[] };
 
 function greeting(hour: number | null) {
   if (hour === null) return "Hello";
@@ -103,7 +104,7 @@ export function BreakfastFlow({
 }) {
   const hour = useHour();
   const router = useRouter();
-  const [nav, setNav] = useState<{ at: Frame; trail: Frame[] }>(() => ({
+  const [nav, setNav] = useState<Nav>(() => ({
     at: {
       step: startWith ? { name: "suggest" } : { name: "mode" },
       mode: startWith?.mode ?? "now",
@@ -120,15 +121,77 @@ export function BreakfastFlow({
   const [stock, setStock] = useState(initial.stock);
   const [upcoming, setUpcoming] = useState(initial.upcoming);
   const [cartCount, setCartCount] = useState(initial.cart.length);
+  const [notes, setNotes] = useState(initial.notes);
+  /** Breakfasts made or logged on this screen, which `initial.lastMade` doesn't know about yet. */
+  const [madeHere, setMadeHere] = useState<Record<number, string>>({});
+  const [logging, setLogging] = useState<number | null>(null);
+  const [progress, setProgress] = useState<Progress>(NO_PROGRESS);
+  const saved = useSavedSession();
   const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    if (isUnderway(nav.at.step)) saveSession(nav, progress);
+    else if (isFinished(nav.at.step)) clearSession();
+  }, [nav, progress]);
+
+  const progressFor = (recipeId: number) => (progress.recipeId === recipeId ? progress : NO_PROGRESS);
+  function tick(recipeId: number, patch: Partial<Omit<Progress, "recipeId">>) {
+    setProgress((p) => ({ ...(p.recipeId === recipeId ? p : NO_PROGRESS), ...patch, recipeId }));
+  }
+
+  function resume(s: SavedSession) {
+    setNav(s.nav);
+    setProgress(s.progress);
+    scrollAppToTop();
+  }
+
+  /** Last night's prep was never marked done: if it was finished after all, it's tomorrow's breakfast. */
+  function confirmPrepped(s: SavedSession) {
+    startTransition(async () => {
+      try {
+        await unwrap(planTomorrow(s.recipe.id, true));
+        clearSession();
+        setUpcoming({ recipeId: s.recipe.id, needsPrep: true, createdAt: new Date().toISOString() });
+        go({ name: "upcoming" }, { mode: "now", skipped: [], pinned: null });
+      } catch (err) {
+        toast.error(failureMessage(err));
+      }
+    });
+  }
 
   const suggestedMode: Mode | null =
     hour === null ? null : hour >= 4 && hour < 14 ? "now" : "tonight";
 
   const ranked = useMemo(
-    () => rankRecipes(initial.lastMade, initial.stats, initial.disliked),
-    [initial.lastMade, initial.stats, initial.disliked],
+    () => rankRecipes({ ...initial.lastMade, ...madeHere }, initial.stats, initial.disliked),
+    [initial.lastMade, madeHere, initial.stats, initial.disliked],
   );
+
+  function setNote(recipeId: number, note: RecipeNote | undefined) {
+    setNotes((all) => {
+      const next = { ...all };
+      if (note) next[recipeId] = note;
+      else delete next[recipeId];
+      return next;
+    });
+  }
+
+  const noteCard = (recipeId: number) =>
+    notes[recipeId] && (
+      <RecipeNoteCard
+        key={`note-${recipeId}`}
+        recipeId={recipeId}
+        note={notes[recipeId]}
+        onChange={(n) => setNote(recipeId, n)}
+      />
+    );
+
+  function logged({ recipeId, madeAt, note }: LoggedBreakfast) {
+    setLogging(null);
+    setMadeHere((m) => ({ ...m, [recipeId]: madeAt }));
+    if (note !== null) setNote(recipeId, note ? { text: note, updatedAt: new Date().toISOString() } : undefined);
+    nextSuggestion(recipeId);
+  }
 
   const knownMissing = (recipeId: number) =>
     checkableIds(RECIPE_BY_ID[recipeId]).some((id) => session[id] === "missing");
@@ -151,6 +214,7 @@ export function BreakfastFlow({
   /** Once something is saved (made, prepped, rated) there's nothing to step back into. */
   function settle(next: Step) {
     setNav(({ at }) => ({ at: { ...at, step: next }, trail: [] }));
+    setProgress(NO_PROGRESS);
     scrollAppToTop();
   }
 
@@ -164,6 +228,7 @@ export function BreakfastFlow({
   }
 
   function restart() {
+    clearSession();
     setNav(({ at }) => ({
       at: { step: { name: "mode" }, mode: at.mode, pinned: null, skipped: [] },
       trail: [],
@@ -302,6 +367,7 @@ export function BreakfastFlow({
     startTransition(async () => {
       try {
         const historyId = await unwrap(markMade(recipeId));
+        setMadeHere((m) => ({ ...m, [recipeId]: new Date().toISOString() }));
         if (upcoming?.recipeId === recipeId) setUpcoming(null);
         settle({ name: "serve", recipeId, historyId });
       } catch (err) {
@@ -342,6 +408,16 @@ export function BreakfastFlow({
             <h1 className="font-heading text-3xl font-semibold">{greeting(hour)}</h1>
             <p className="mt-1 text-muted-foreground">What are we doing?</p>
           </div>
+
+          {saved && (
+            <ResumeCard
+              saved={saved}
+              pending={pending}
+              onResume={() => resume(saved)}
+              onPrepped={() => confirmPrepped(saved)}
+              onDiscard={clearSession}
+            />
+          )}
 
           {upcoming && upcomingRecipe && (
             <Card size="sm" className="bg-primary/5 ring-primary/20">
@@ -422,6 +498,7 @@ export function BreakfastFlow({
             recipe={recipe}
             eyebrow={prepped ? "You prepped this last night" : "You picked this last night"}
           />
+          {noteCard(recipe.id)}
           <NutritionSnapshot recipe={recipe} />
           <p className="text-lg">
             {prepped ? "Is it ready in the fridge?" : "Still want to make it?"}
@@ -537,6 +614,7 @@ export function BreakfastFlow({
             showBadges={false}
             eyebrow={mode === "now" ? "How about this morning…" : "For tomorrow morning…"}
           />
+          {noteCard(id)}
           <PrepStatus
             recipe={recipe}
             context={mode}
@@ -637,15 +715,27 @@ export function BreakfastFlow({
             )}
           </div>
 
-          {mode === "now" && !needsLastNight && (
-            <Button
-              variant="link"
-              className="self-center text-muted-foreground"
-              onClick={() => go({ name: "pickPrepped" })}
-            >
-              I prepped something last night
+          <div className="flex flex-col items-center">
+            <Button variant="link" className="text-muted-foreground" onClick={() => setLogging(id)}>
+              <HistoryIcon />
+              I made this recently
             </Button>
-          )}
+            {mode === "now" && !needsLastNight && (
+              <Button
+                variant="link"
+                className="text-muted-foreground"
+                onClick={() => go({ name: "pickPrepped" })}
+              >
+                I prepped something last night
+              </Button>
+            )}
+          </div>
+          <AlreadyMadeDialog
+            recipe={logging !== null ? RECIPE_BY_ID[logging] : null}
+            note={logging !== null ? notes[logging]?.text : undefined}
+            onClose={() => setLogging(null)}
+            onLogged={logged}
+          />
         </section>
       );
     }
@@ -791,7 +881,13 @@ export function BreakfastFlow({
             </p>
             <h1 className="font-heading text-2xl font-semibold">{recipe.name}</h1>
           </div>
-          <GatherList recipeId={recipe.id} scope={step.scope} />
+          {noteCard(recipe.id)}
+          <GatherList
+            recipeId={recipe.id}
+            scope={step.scope}
+            taken={progressFor(recipe.id).taken}
+            onChange={(taken) => tick(recipe.id, { taken })}
+          />
           <Button
             size="lg"
             className="h-12 text-base"
@@ -818,7 +914,12 @@ export function BreakfastFlow({
             </p>
             <h1 className="font-heading text-2xl font-semibold">{recipe.name}</h1>
           </div>
-          <StepList key={`${recipe.id}-${step.night}`} steps={steps} />
+          {noteCard(recipe.id)}
+          <StepList
+            steps={steps}
+            done={progressFor(recipe.id).done}
+            onChange={(done) => tick(recipe.id, { done })}
+          />
           {step.night ? (
             <Button
               size="lg"
@@ -898,7 +999,15 @@ export function BreakfastFlow({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <RatingForm historyId={step.historyId} onDone={() => settle({ name: "done" })} />
+              <RatingForm
+                historyId={step.historyId}
+                recipeId={recipe.id}
+                note={notes[recipe.id]?.text}
+                onNoteSaved={(text) =>
+                  setNote(recipe.id, text ? { text, updatedAt: new Date().toISOString() } : undefined)
+                }
+                onDone={() => settle({ name: "done" })}
+              />
             </CardContent>
           </Card>
         </section>
@@ -924,6 +1033,66 @@ export function BreakfastFlow({
     case "exhausted":
       return <Exhausted back={back} cartCount={cartCount} />;
   }
+}
+
+/** An unfinished breakfast saved on this phone: pick it back up, or say last night's prep got done. */
+function ResumeCard({
+  saved,
+  pending,
+  onResume,
+  onPrepped,
+  onDiscard,
+}: {
+  saved: SavedSession;
+  pending: boolean;
+  onResume: () => void;
+  onPrepped: () => void;
+  onDiscard: () => void;
+}) {
+  if (saved.status === "askPrepped") {
+    return (
+      <Card className="ring-primary/30">
+        <CardHeader>
+          <CardDescription className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-primary uppercase">
+            <MoonIcon className="size-3.5" />
+            Last night
+          </CardDescription>
+          <CardTitle className="text-lg">Did you finish prepping {saved.recipe.name.toLowerCase()}?</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <Button size="lg" className="h-12 text-base" disabled={pending} onClick={onPrepped}>
+            Yes, it&apos;s in the fridge
+          </Button>
+          <Button variant="outline" size="lg" className="h-11" disabled={pending} onClick={onDiscard}>
+            No, I didn&apos;t finish
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card className="ring-primary/30">
+      <CardHeader>
+        <CardDescription className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-primary uppercase">
+          {saved.nav.at.mode === "tonight" ? <MoonIcon className="size-3.5" /> : <SunIcon className="size-3.5" />}
+          {saved.nav.at.mode === "tonight" ? "Prep in progress" : "Breakfast in progress"}
+        </CardDescription>
+        <CardTitle className="text-lg">Resume: {saved.recipe.name}</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {describeSession(saved)} · {startedAgo(saved)}
+        </p>
+      </CardHeader>
+      <CardContent className="grid grid-cols-[1fr_auto] gap-2">
+        <Button size="lg" className="h-12 text-base" onClick={onResume}>
+          <PlayIcon />
+          Resume
+        </Button>
+        <Button variant="ghost" size="lg" className="h-12 text-muted-foreground" onClick={onDiscard}>
+          Discard
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 function ModeButton({
@@ -962,20 +1131,29 @@ function ModeButton({
   );
 }
 
-function GatherList({ recipeId, scope }: { recipeId: number; scope: CheckScope }) {
+function GatherList({
+  recipeId,
+  scope,
+  taken,
+  onChange,
+}: {
+  recipeId: number;
+  scope: CheckScope;
+  taken: string[];
+  onChange: (taken: string[]) => void;
+}) {
   const items = recipeItems(RECIPE_BY_ID[recipeId], scope);
-  const [taken, setTaken] = useState<Record<string, boolean>>({});
   return (
     <ul className="flex flex-col divide-y rounded-xl border bg-card">
       {items.map((ri) => (
         <li key={ri.id}>
           <label className="flex cursor-pointer items-center gap-3 p-3">
             <Checkbox
-              checked={!!taken[ri.id]}
-              onCheckedChange={(v) => setTaken((t) => ({ ...t, [ri.id]: !!v }))}
+              checked={taken.includes(ri.id)}
+              onCheckedChange={(v) => onChange(v ? [...taken, ri.id] : taken.filter((id) => id !== ri.id))}
               className="size-5"
             />
-            <span className={cn("flex-1", taken[ri.id] && "text-muted-foreground line-through")}>
+            <span className={cn("flex-1", taken.includes(ri.id) && "text-muted-foreground line-through")}>
               {INGREDIENTS[ri.id].name}
             </span>
             <span className="text-right text-sm font-medium tabular-nums">{ri.qty}</span>
@@ -986,8 +1164,15 @@ function GatherList({ recipeId, scope }: { recipeId: number; scope: CheckScope }
   );
 }
 
-function StepList({ steps }: { steps: string[] }) {
-  const [done, setDone] = useState<number[]>([]);
+function StepList({
+  steps,
+  done,
+  onChange,
+}: {
+  steps: string[];
+  done: number[];
+  onChange: (done: number[]) => void;
+}) {
   return (
     <ol className="flex flex-col gap-3">
       {steps.map((s, i) => {
@@ -1000,9 +1185,7 @@ function StepList({ steps }: { steps: string[] }) {
                 "flex w-full items-start gap-3 rounded-xl border bg-card p-4 text-left transition-colors",
                 isDone && "bg-muted text-muted-foreground",
               )}
-              onClick={() =>
-                setDone((d) => (isDone ? d.filter((x) => x !== i) : [...d, i]))
-              }
+              onClick={() => onChange(isDone ? done.filter((x) => x !== i) : [...done, i])}
             >
               <span
                 className={cn(
