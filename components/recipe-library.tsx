@@ -2,17 +2,23 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChartNoAxesColumnIcon, ChevronRightIcon, HeartIcon, ThumbsDownIcon } from "lucide-react";
+import { BanIcon, ChartNoAxesColumnIcon, ChevronRightIcon, HeartIcon, ThumbsDownIcon } from "lucide-react";
 import { NutritionLine } from "@/components/nutrition";
 import { RecipeBadges } from "@/components/recipe-header";
+import { SearchField } from "@/components/search-field";
+import { Button } from "@/components/ui/button";
 import {
+  INGREDIENTS,
   RECIPE_TRAITS,
   RECIPES,
+  dislikedIn,
   isDisliked,
   preferenceScore,
   prepKinds,
+  visibleRecipes,
   type Recipe,
 } from "@/lib/recipes";
+import { matchesQuery, recipeSearchText } from "@/lib/search";
 import type { AppState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -35,17 +41,36 @@ const FILTERS: Filter[] = [
 
 export function RecipeLibrary({ state }: { state: AppState }) {
   const [filter, setFilter] = useState("all");
+  const [showHidden, setShowHidden] = useState(false);
+  const [query, setQuery] = useState("");
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
-  const shown = RECIPES.filter((r) => active.test(r, state));
-  const tried = RECIPES.filter((r) => state.stats[r.id]?.made).length;
+  const visible = visibleRecipes(state.disliked);
+  const hiddenCount = RECIPES.length - visible.length;
+  const pool = showHidden ? RECIPES : visible;
+  const fits = (r: Recipe) => active.test(r, state) && matchesQuery(query, recipeSearchText(r));
+  const shown = pool.filter(fits);
+  const hiddenMatches = showHidden ? 0 : RECIPES.filter((r) => !visible.includes(r) && fits(r)).length;
+  const tried = pool.filter((r) => state.stats[r.id]?.made).length;
 
   return (
     <section className="flex flex-col gap-5">
       <div>
         <h1 className="font-heading text-3xl font-semibold">Recipes</h1>
         <p className="mt-1 text-muted-foreground">
-          All {RECIPES.length} breakfasts. You&apos;ve tried {tried} so far.
+          {hiddenCount > 0 && !showHidden
+            ? `${visible.length} breakfasts you'll eat. You've tried ${tried} so far.`
+            : `All ${pool.length} breakfasts. You've tried ${tried} so far.`}
         </p>
+        {hiddenCount > 0 && (
+          <Button
+            variant="link"
+            size="sm"
+            className="h-auto p-0"
+            onClick={() => setShowHidden((v) => !v)}
+          >
+            {showHidden ? "Hide them again" : `Show hidden (${hiddenCount})`}
+          </Button>
+        )}
       </div>
 
       <Link
@@ -59,6 +84,13 @@ export function RecipeLibrary({ state }: { state: AppState }) {
         </span>
         <ChevronRightIcon className="size-4 text-muted-foreground" />
       </Link>
+
+      <SearchField
+        value={query}
+        onChange={setQuery}
+        label="Search recipes"
+        placeholder="Search by name or ingredient"
+      />
 
       <div className="-mx-5 flex gap-2 overflow-x-auto px-5 pb-1 [scrollbar-width:none]" role="group" aria-label="Filter recipes">
         {FILTERS.map((f) => (
@@ -80,13 +112,21 @@ export function RecipeLibrary({ state }: { state: AppState }) {
       </div>
 
       {shown.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">Nothing here yet.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {query.trim() ? `No breakfasts match "${query.trim()}".` : "Nothing here yet."}
+        </p>
       ) : (
         <ul className="flex flex-col gap-3">
           {shown.map((r) => (
             <RecipeCard key={r.id} recipe={r} state={state} />
           ))}
         </ul>
+      )}
+      {query.trim() && hiddenMatches > 0 && (
+        <Button variant="link" className="self-center" onClick={() => setShowHidden(true)}>
+          {hiddenMatches} hidden {hiddenMatches === 1 ? "breakfast matches" : "breakfasts match"}. Show{" "}
+          {hiddenMatches === 1 ? "it" : "them"}
+        </Button>
       )}
     </section>
   );
@@ -96,6 +136,7 @@ function RecipeCard({ recipe, state }: { recipe: Recipe; state: AppState }) {
   const stats = state.stats[recipe.id];
   const score = preferenceScore(stats);
   const disliked = isDisliked(stats);
+  const offList = dislikedIn(recipe, state.disliked);
   return (
     <li className="relative flex flex-col gap-2 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/50">
       <div className="flex items-start justify-between gap-3">
@@ -123,6 +164,12 @@ function RecipeCard({ recipe, state }: { recipe: Recipe; state: AppState }) {
         )}
       </div>
       <p className="text-sm text-muted-foreground">{recipe.blurb}</p>
+      {offList.length > 0 && (
+        <p className="flex items-center gap-1.5 text-xs text-warning">
+          <BanIcon className="size-3.5 shrink-0" />
+          Hidden: uses {offList.map((id) => INGREDIENTS[id].name.toLowerCase()).join(", ")}
+        </p>
+      )}
       <NutritionLine recipe={recipe} />
       <div className="relative z-10 flex flex-wrap items-center gap-2 self-start">
         <RecipeBadges recipe={recipe} stock={state.stock} loadedAt={state.loadedAt} />

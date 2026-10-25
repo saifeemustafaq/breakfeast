@@ -115,6 +115,18 @@ export async function requireUserAction(): Promise<UserAuth> {
   }
 }
 
+/** For chrome that also renders signed out (the app menu): null instead of a redirect. */
+export const getUserPage = cache(async (): Promise<UserAuth | null> => {
+  try {
+    return await requireUser();
+  } catch (error) {
+    if (error instanceof ApiError && (error.code === "UNAUTHENTICATED" || error.code === "SESSION_ENDED")) {
+      return null;
+    }
+    throw error;
+  }
+});
+
 export const getAdminPage = cache(async (): Promise<AdminAuth | null> => {
   try {
     return await requireAdmin();

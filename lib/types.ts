@@ -1,4 +1,12 @@
+import type { Aisle } from "./recipes";
+
 export type StockEntry = { inStock: boolean; updatedAt: string };
+
+/** An item the household added to its pantry by hand; never part of a recipe. */
+export type CustomIngredient = { id: string; name: string; aisle: Aisle };
+
+/** What `addIngredient` resolved the typed name to: an existing item, or a new one of yours. */
+export type AddedIngredient = CustomIngredient & { custom: boolean; isNew: boolean };
 
 export type CartItem = {
   ingredientId: string;
@@ -19,6 +27,10 @@ export type AppState = {
   upcoming: Upcoming | null;
   lastMade: Record<number, string>;
   stats: Record<number, RecipeStats>;
+  /** Your own allergies and dislikes: breakfasts using these are hidden. */
+  disliked: string[];
+  /** The household's own pantry items, beyond the recipe catalog. */
+  custom: CustomIngredient[];
   loadedAt: number;
 };
 

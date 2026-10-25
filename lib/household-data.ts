@@ -1,6 +1,9 @@
 import "server-only";
+import { ObjectId } from "mongodb";
+import { cacheLife, cacheTag } from "next/cache";
 import { DAY } from "@/lib/time";
 import { requireUserPage } from "@/lib/auth/guards";
+import { CLIENT_STALE_SEC, householdTag, userTag } from "@/lib/cache-tags";
 import { collections } from "@/lib/db";
 import { invitesWithNames, livePending, memberCount } from "@/lib/households";
 import { displayPhone } from "@/lib/phone";
@@ -17,6 +20,18 @@ const daysLeft = (at: Date, now: Date) => Math.max(1, Math.ceil((at.getTime() - 
 
 export async function getHouseholdView(): Promise<HouseholdView> {
   const { user } = await requireUserPage();
+  return householdView(user.householdId.toHexString(), user._id.toHexString(), user.loginIdNormalized);
+}
+
+async function householdView(
+  householdIdHex: string,
+  userIdHex: string,
+  loginId: string,
+): Promise<HouseholdView> {
+  "use cache: private";
+  cacheTag(householdTag(householdIdHex), userTag(userIdHex));
+  cacheLife({ stale: CLIENT_STALE_SEC });
+  const user = { _id: new ObjectId(userIdHex), householdId: new ObjectId(householdIdHex) };
   const c = await collections();
   const now = new Date();
   const [members, outgoingDocs] = await Promise.all([
@@ -29,7 +44,7 @@ export async function getHouseholdView(): Promise<HouseholdView> {
 
   const incomingDocs =
     members.length === 1
-      ? await c.householdInvites.find({ toLoginId: user.loginIdNormalized, ...livePending(now) }).sort({ createdAt: -1 }).toArray()
+      ? await c.householdInvites.find({ toLoginId: loginId, ...livePending(now) }).sort({ createdAt: -1 }).toArray()
       : [];
   const [outgoing, incoming] = await Promise.all([invitesWithNames(c, outgoingDocs), invitesWithNames(c, incomingDocs)]);
   const sizes = await Promise.all(incoming.map((i) => memberCount(c, i.householdId)));

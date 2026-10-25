@@ -1,17 +1,30 @@
 import "server-only";
+import { ObjectId } from "mongodb";
+import { cacheLife, cacheTag } from "next/cache";
 import { requireUserPage } from "./auth/guards";
+import { CLIENT_STALE_SEC, householdTag, userTag } from "./cache-tags";
 import { collections } from "./db";
 import { HOUR } from "./time";
+import type { Aisle } from "./recipes";
 import type { AppState, HistoryEntry, RecipeStats } from "./types";
 
 const UPCOMING_FRESH_MS = 36 * HOUR;
 
 export async function getAppState(): Promise<AppState> {
   const { user } = await requireUserPage();
-  const householdId = user.householdId;
+  return appState(user.householdId.toHexString(), user._id.toHexString());
+}
+
+/** Everything the five tabs render from, in one round of queries. */
+async function appState(householdIdHex: string, userIdHex: string): Promise<AppState> {
+  "use cache: private";
+  cacheTag(householdTag(householdIdHex), userTag(userIdHex));
+  cacheLife({ stale: CLIENT_STALE_SEC });
+  const householdId = new ObjectId(householdIdHex);
+  const user = { _id: new ObjectId(userIdHex) };
   const c = await collections();
 
-  const [pantry, cart, upcoming, lastMade, ratings] = await Promise.all([
+  const [pantry, cart, upcoming, lastMade, ratings, prefs, custom] = await Promise.all([
     c.pantry.find({ householdId }).toArray(),
     c.cart.find({ householdId }).sort({ addedAt: 1 }).toArray(),
     c.upcoming.findOne({ householdId }),
@@ -44,6 +57,8 @@ export async function getAppState(): Promise<AppState> {
         },
       ])
       .toArray(),
+    c.preferences.findOne({ userId: user._id }),
+    c.customIngredients.find({ householdId }).sort({ nameKey: 1 }).toArray(),
   ]);
 
   const stats: Record<number, RecipeStats> = {};
@@ -83,6 +98,8 @@ export async function getAppState(): Promise<AppState> {
       : null,
     lastMade: Object.fromEntries(lastMade.map((h) => [h._id, h.last.toISOString()])),
     stats,
+    disliked: prefs?.disliked ?? [],
+    custom: custom.map((i) => ({ id: i.ingredientId, name: i.name, aisle: i.aisle as Aisle })),
     loadedAt,
   };
 }
@@ -90,12 +107,20 @@ export async function getAppState(): Promise<AppState> {
 /** The household's breakfasts, newest first, with the signed-in user's own rating. */
 export async function getHistory(limit = 365): Promise<HistoryEntry[]> {
   const { user } = await requireUserPage();
-  const householdId = user.householdId;
+  return historyEntries(user.householdId.toHexString(), user._id.toHexString(), limit);
+}
+
+async function historyEntries(householdIdHex: string, userIdHex: string, limit: number): Promise<HistoryEntry[]> {
+  "use cache: private";
+  cacheTag(householdTag(householdIdHex), userTag(userIdHex));
+  cacheLife({ stale: CLIENT_STALE_SEC });
+  const householdId = new ObjectId(householdIdHex);
+  const userId = new ObjectId(userIdHex);
   const c = await collections();
   const history = await c.history.find({ householdId }).sort({ madeAt: -1 }).limit(limit).toArray();
   const historyIds = history.flatMap((h) => (h._id ? [h._id] : []));
   const ratings = historyIds.length
-    ? await c.ratings.find({ userId: user._id, historyId: { $in: historyIds } }).toArray()
+    ? await c.ratings.find({ userId, historyId: { $in: historyIds } }).toArray()
     : [];
   const byHistory = new Map(ratings.map((r) => [r.historyId.toHexString(), r]));
   return history.flatMap((h) => {

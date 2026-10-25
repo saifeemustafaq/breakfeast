@@ -16,9 +16,14 @@ export const livePending = (now = new Date()) => ({ status: "pending" as const, 
  * Folds `fromId`'s data into `intoId` and deletes `fromId`:
  * pantry keeps the most recently updated entry, cart items and their recipes are combined,
  * history and ratings move over, and the target's plan for tomorrow wins if it has one.
+ * Hand-added items move too; one the target already has by name takes over the target's id.
  */
 async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: ObjectId) {
-  const srcPantry = await c.pantry.find({ householdId: fromId }, { session }).toArray();
+  const remap = await mergeCustom({ c, session, now }, fromId, intoId);
+  const srcPantry = (await c.pantry.find({ householdId: fromId }, { session }).toArray()).map((p) => ({
+    ...p,
+    ingredientId: remap.get(p.ingredientId) ?? p.ingredientId,
+  }));
   const dstPantry = await c.pantry.find({ householdId: intoId }, { session }).toArray();
   const dst = new Map(dstPantry.map((p) => [p.ingredientId, p]));
   const pantryOps = srcPantry.flatMap((p): AnyBulkWriteOperation<PantryDoc>[] => {
@@ -31,7 +36,10 @@ async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: Obje
   });
   if (pantryOps.length) await c.pantry.bulkWrite(pantryOps, { session });
 
-  const srcCart = await c.cart.find({ householdId: fromId }, { session }).toArray();
+  const srcCart = (await c.cart.find({ householdId: fromId }, { session }).toArray()).map((item) => ({
+    ...item,
+    ingredientId: remap.get(item.ingredientId) ?? item.ingredientId,
+  }));
   if (srcCart.length) {
     await c.cart.bulkWrite(
       srcCart.map((item) => ({
@@ -71,6 +79,27 @@ async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: Obje
   await c.households.updateOne({ _id: intoId }, { $set: { updatedAt: now } }, { session });
 }
 
+/** Moves the source's own items across and returns source id to target id for name clashes. */
+async function mergeCustom({ c, session }: Tx, fromId: ObjectId, intoId: ObjectId) {
+  const remap = new Map<string, string>();
+  const source = await c.customIngredients.find({ householdId: fromId }, { session }).toArray();
+  if (!source.length) return remap;
+  const target = await c.customIngredients.find({ householdId: intoId }, { session }).toArray();
+  const byId = new Set(target.map((t) => t.ingredientId));
+  const byName = new Map(target.map((t) => [t.nameKey, t.ingredientId]));
+  const move: ObjectId[] = [];
+  for (const item of source) {
+    const existing = byId.has(item.ingredientId) ? item.ingredientId : byName.get(item.nameKey);
+    if (existing) remap.set(item.ingredientId, existing);
+    else if (item._id) move.push(item._id);
+  }
+  if (move.length) {
+    await c.customIngredients.updateMany({ _id: { $in: move } }, { $set: { householdId: intoId } }, { session });
+  }
+  await c.customIngredients.deleteMany({ householdId: fromId }, { session });
+  return remap;
+}
+
 /**
  * Moves history and ratings across. Entries the target already has (same recipe at the same
  * moment, e.g. from a copy made when someone left) are dropped and their ratings re-pointed.
@@ -102,15 +131,30 @@ async function mergeHistory({ c, session }: Tx, fromId: ObjectId, intoId: Object
 }
 
 /**
- * Gives `user` a new household holding a copy of `fromId`'s pantry, cart, plan and history.
+ * Gives `user` a new household holding a copy of `fromId`'s own items, pantry, cart, plan and history.
  * The user's own ratings move with them; everyone else's stay behind.
  */
 async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId): Promise<ObjectId> {
   const newId = new ObjectId();
   await c.households.insertOne({ _id: newId, createdAt: now, updatedAt: now }, { session });
 
+  const custom = await c.customIngredients.find({ householdId: fromId }, { session }).toArray();
   const pantry = await c.pantry.find({ householdId: fromId }, { session }).toArray();
   const cart = await c.cart.find({ householdId: fromId }, { session }).toArray();
+  if (custom.length) {
+    await c.customIngredients.insertMany(
+      custom.map((item) => ({
+        householdId: newId,
+        ingredientId: item.ingredientId,
+        name: item.name,
+        nameKey: item.nameKey,
+        aisle: item.aisle,
+        createdAt: item.createdAt,
+        createdBy: item.createdBy,
+      })),
+      { session },
+    );
+  }
   const plan = await c.upcoming.findOne({ householdId: fromId }, { session });
   const history = await c.history.find({ householdId: fromId }, { session }).toArray();
   const ratings = await c.ratings.find({ householdId: fromId, userId: user._id }, { session }).toArray();
