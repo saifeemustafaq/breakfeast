@@ -195,7 +195,7 @@ const list: Ingredient[] = [
       minutes: 30,
       keepsDays: 4,
       howTo:
-        "Season and bake chicken breasts at 425°F (220°C) for about 20 min, until 165°F (74°C) inside. Cool, cut into 3 oz portions; refrigerate up to 3–4 days or freeze.",
+        "For each 1 lb of chicken breast, rub with 1 tsp olive oil, ½ tsp salt and ½ tsp black pepper. Optionally add ½ tsp paprika or garlic powder. Bake at 425°F (220°C) for about 20 min, until 165°F (74°C) inside. Cool, cut into 3 oz portions; refrigerate up to 3–4 days or freeze.",
     },
   },
 ];
