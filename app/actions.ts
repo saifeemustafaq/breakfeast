@@ -13,6 +13,7 @@ import { checkableIds, INGREDIENTS, RECIPE_BY_ID } from "@/lib/recipes";
 import type { CustomIngredientDoc } from "@/lib/schema";
 import { DAY } from "@/lib/time";
 import type { AddedIngredient } from "@/lib/types";
+import { choiceInput, choiceKind, cleanSkipped, extrasFor, madeInput, snapshotFor, type MadeInput } from "@/lib/version-store";
 
 const isIngredient = (id: unknown): id is string =>
   typeof id === "string" && !!INGREDIENTS[id] && !INGREDIENTS[id].always;
@@ -110,6 +111,12 @@ async function upsertCart(householdId: ObjectId, ingredientIds: string[], recipe
   await c.cart.bulkWrite(ingredientIds.map((id) => cartUpsertOp(householdId, id, recipeIds, now)));
 }
 
+/** The planned breakfasts an item is for; an addition from someone's version counts for all of them. */
+function forRecipesOf(id: string, recipeIds: number[]) {
+  const uses = recipeIds.filter((r) => checkableIds(RECIPE_BY_ID[r]).includes(id));
+  return uses.length ? uses : recipeIds;
+}
+
 async function applyKitchenCheck(
   householdId: ObjectId,
   have: string[],
@@ -135,12 +142,7 @@ async function applyKitchenCheck(
       cartMode === "shared"
         ? missing.map((id) => cartUpsertOp(householdId, id, recipeIds, now))
         : missing.map((id) =>
-            cartUpsertOp(
-              householdId,
-              id,
-              recipeIds.filter((r) => checkableIds(RECIPE_BY_ID[r]).includes(id)),
-              now,
-            ),
+            cartUpsertOp(householdId, id, forRecipesOf(id, recipeIds), now),
           );
     await c.cart.bulkWrite(ops);
   }
@@ -163,18 +165,50 @@ export async function recordPlanCheck(input: { have: string[]; missing: string[]
   );
 }
 
-export async function planTomorrow(recipe: number, needsPrep: boolean): Promise<ActionResult> {
-  return userAction(["plan.set", "plan.set_failed"], { recipeId: recipe, needsPrep }, async ({ user }) => {
-    const id = parseInput(recipeId, recipe);
-    const prep = parseInput(z.boolean(), needsPrep);
-    const c = await collections();
-    await c.upcoming.updateOne(
-      { householdId: user.householdId },
-      { $set: { recipeId: id, needsPrep: prep, createdAt: new Date() } },
-      { upsert: true },
-    );
-    return done(null);
-  });
+/** Plans tomorrow's breakfast, freezing the chosen version and anything skipped while prepping tonight. */
+export async function planTomorrow(recipe: number, needsPrep: boolean, made?: MadeInput): Promise<ActionResult> {
+  return userAction(
+    ["plan.set", "plan.set_failed"],
+    {
+      recipeId: recipe,
+      needsPrep,
+      version: choiceKind(made?.choice),
+      skipped: made?.skipped?.length ?? 0,
+      extras: made?.extras?.length ?? 0,
+    },
+    async ({ user }) => {
+      const id = parseInput(recipeId, recipe);
+      const prep = parseInput(z.boolean(), needsPrep);
+      const m = parseInput(madeInput, made);
+      const c = await collections();
+      const version = await snapshotFor(c, user, id, m?.choice);
+      const skipped = cleanSkipped(id, version, m?.skipped);
+      const checked = await extrasFor(c, user, id, version, m?.extras, "night");
+      if (!checked.ok) return fail(checked.message);
+      const { extras } = checked;
+      const unset = {
+        ...(version ? {} : { version: "" as const }),
+        ...(skipped ? {} : { skipped: "" as const }),
+        ...(extras ? {} : { extras: "" as const }),
+      };
+      await c.upcoming.updateOne(
+        { householdId: user.householdId },
+        {
+          $set: {
+            recipeId: id,
+            needsPrep: prep,
+            createdAt: new Date(),
+            ...(version ? { version } : {}),
+            ...(skipped ? { skipped } : {}),
+            ...(extras ? { extras } : {}),
+          },
+          ...(Object.keys(unset).length ? { $unset: unset } : {}),
+        },
+        { upsert: true },
+      );
+      return done(null);
+    },
+  );
 }
 
 export async function clearTomorrow(): Promise<ActionResult> {
@@ -185,26 +219,47 @@ export async function clearTomorrow(): Promise<ActionResult> {
   });
 }
 
-/** Returns the new history id, for the rating form. */
-export async function markMade(recipe: number): Promise<ActionResult<string>> {
-  return userAction(["breakfast.made", "breakfast.mark_failed"], { recipeId: recipe }, async ({ user }) => {
-    const id = parseInput(recipeId, recipe);
-    const c = await collections();
-    const { insertedId } = await c.history.insertOne({
-      householdId: user.householdId,
-      recipeId: id,
-      madeAt: new Date(),
-      madeBy: user._id,
-    });
-    await c.upcoming.deleteOne({ householdId: user.householdId, recipeId: id });
-    return done(insertedId.toHexString());
-  });
+/** Records a breakfast with the version made and anything skipped. Returns the new history id, for the rating form. */
+export async function markMade(recipe: number, made?: MadeInput): Promise<ActionResult<string>> {
+  return userAction(
+    ["breakfast.made", "breakfast.mark_failed"],
+    {
+      recipeId: recipe,
+      version: choiceKind(made?.choice),
+      skipped: made?.skipped?.length ?? 0,
+      extras: made?.extras?.length ?? 0,
+    },
+    async ({ user }) => {
+      const id = parseInput(recipeId, recipe);
+      const m = parseInput(madeInput, made);
+      const c = await collections();
+      const version = await snapshotFor(c, user, id, m?.choice);
+      const skipped = cleanSkipped(id, version, m?.skipped);
+      const planned =
+        m?.choice === "planned" ? await c.upcoming.findOne({ householdId: user.householdId, recipeId: id }) : null;
+      const checked = await extrasFor(c, user, id, version, m?.extras, "morning", planned?.extras);
+      if (!checked.ok) return fail(checked.message);
+      const { extras } = checked;
+      const { insertedId } = await c.history.insertOne({
+        householdId: user.householdId,
+        recipeId: id,
+        madeAt: new Date(),
+        madeBy: user._id,
+        ...(version ? { version } : {}),
+        ...(skipped ? { skipped } : {}),
+        ...(extras ? { extras } : {}),
+      });
+      await c.upcoming.deleteOne({ householdId: user.householdId, recipeId: id });
+      return done(insertedId.toHexString());
+    },
+  );
 }
 
 const logInput = z.object({
   recipeId,
   daysAgo: z.number({ error: "Choose when you made it." }).int().min(0).max(6),
   rating: z.object({ taste: score, feel: score, again: score }).optional(),
+  choice: choiceInput.optional(),
 });
 
 /**
@@ -215,19 +270,22 @@ export async function logBreakfast(input: {
   recipeId: number;
   daysAgo: number;
   rating?: { taste: number; feel: number; again: number };
+  choice?: string;
 }): Promise<ActionResult<string>> {
   return userAction(
     ["breakfast.logged", "breakfast.log_failed"],
-    { recipeId: input?.recipeId, daysAgo: input?.daysAgo, rated: !!input?.rating },
+    { recipeId: input?.recipeId, daysAgo: input?.daysAgo, rated: !!input?.rating, version: choiceKind(input?.choice) },
     async ({ user }) => {
-      const { recipeId: id, daysAgo, rating } = parseInput(logInput, input);
+      const { recipeId: id, daysAgo, rating, choice } = parseInput(logInput, input);
       const now = new Date();
       const c = await collections();
+      const version = await snapshotFor(c, user, id, choice);
       const { insertedId } = await c.history.insertOne({
         householdId: user.householdId,
         recipeId: id,
         madeAt: new Date(now.getTime() - daysAgo * DAY),
         madeBy: user._id,
+        ...(version ? { version } : {}),
       });
       if (rating) {
         await c.ratings.insertOne({
@@ -411,6 +469,11 @@ export async function removeIngredient(ingredient: string): Promise<ActionResult
     await c.customIngredients.deleteOne({ householdId, ingredientId: id });
     await c.pantry.deleteOne({ householdId, ingredientId: id });
     await c.cart.deleteOne({ householdId, ingredientId: id });
+    await c.recipeVersions.updateMany(
+      { householdId, "additions.ingredientId": id },
+      { $pull: { additions: { ingredientId: id } }, $set: { updatedAt: new Date() } },
+    );
+    await c.recipeVersions.deleteMany({ householdId, additions: { $size: 0 } });
     return done(null);
   });
 }

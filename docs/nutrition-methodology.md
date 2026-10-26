@@ -13,6 +13,7 @@ nutrient for recipe = sum over ingredients of (USDA value per 100 g × grams use
 
 - **Source data:** USDA FoodData Central, SR Legacy release (April 2018). Each ingredient maps to one FDC record in `scripts/extract-usda.py`; `lib/nutrition-data.ts` is generated from the CSV download and never edited by hand.
 - **Gram weights:** `PORTION_GRAMS` in `lib/nutrition.ts` converts each recipe quantity (cups, tablespoons, pieces) into grams using the USDA portion weights for that same record. Loose amounts such as "a handful" or "to taste" use a typical portion and are flagged in the UI.
+- **Your version of a recipe:** catalog items you add use a preset amount from `lib/measures.ts`, each weighed with the USDA portion weights for that item's record, so they count like any recipe ingredient. Your own pantry items have no USDA record; their free-text amount is shown but not counted, and the estimate notes say so. One-off extras added while making a breakfast count the same way, for that breakfast only. Ingredients you skip are left out of that breakfast's numbers in history and exports.
 - **Daily Values:** FDA adult Daily Values (21 CFR 101.9). Omega-3 (ALA) has no Daily Value, so it uses the NIH Adequate Intake of 1.6 g.
 - **Missing data:** when a USDA record doesn't report a nutrient, it counts as unknown, never zero. The UI marks the nutrient with an asterisk and names the ingredient.
 

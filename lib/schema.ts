@@ -126,6 +126,9 @@ export type UpcomingDoc = {
   recipeId: number;
   needsPrep: boolean;
   createdAt: Date;
+  version?: VersionSnapshotDoc;
+  skipped?: string[];
+  extras?: ExtraDoc[];
 };
 export type HistoryDoc = {
   _id?: ObjectId;
@@ -133,6 +136,39 @@ export type HistoryDoc = {
   recipeId: number;
   madeAt: Date;
   madeBy: ObjectId;
+  /** The personal version made, frozen at the time; absent for the original. */
+  version?: VersionSnapshotDoc;
+  /** Ingredients skipped (or missing) while making it. */
+  skipped?: string[];
+  /** One-off extras added for this breakfast only. */
+  extras?: ExtraDoc[];
+};
+
+export type AdditionDoc = {
+  ingredientId: string;
+  qty: string;
+  grams: number | null;
+  when: "night" | "morning";
+};
+
+export type ExtraDoc = AdditionDoc & { name: string };
+
+export type VersionSnapshotDoc = {
+  ownerId: ObjectId;
+  ownerName: string;
+  additions: (AdditionDoc & { name: string })[];
+};
+
+/** One person's version of a recipe. `householdId` is where it's shared when `shared` is on. */
+export type RecipeVersionDoc = {
+  _id?: ObjectId;
+  householdId: ObjectId;
+  userId: ObjectId;
+  recipeId: number;
+  additions: AdditionDoc[];
+  shared: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 };
 export type RatingDoc = {
   _id?: ObjectId;
@@ -174,6 +210,8 @@ export type PreferencesDoc = {
   _id?: ObjectId;
   userId: ObjectId;
   disliked: string[];
+  /** The version last picked per recipe id: "original", "mine" or "user:<id>". */
+  choices?: Record<string, string>;
   updatedAt: Date;
 };
 
@@ -321,6 +359,7 @@ export const COLLECTIONS = {
   preferences: "preferences",
   customIngredients: "custom_ingredients",
   recipeNotes: "recipe_notes",
+  recipeVersions: "recipe_versions",
 } as const;
 
 const sessionIndexes: IndexDescription[] = [
@@ -381,7 +420,6 @@ export function indexSpecs(): Record<string, IndexDescription[]> {
     [COLLECTIONS.pantry]: [{ key: { householdId: 1, ingredientId: 1 }, unique: true }],
     [COLLECTIONS.cart]: [{ key: { householdId: 1, ingredientId: 1 }, unique: true }],
     [COLLECTIONS.upcoming]: [{ key: { householdId: 1 }, unique: true }],
-    [COLLECTIONS.history]: [{ key: { householdId: 1, madeAt: -1 } }],
     [COLLECTIONS.ratings]: [
       { key: { historyId: 1, userId: 1 }, unique: true },
       { key: { householdId: 1, recipeId: 1 } },
@@ -392,6 +430,14 @@ export function indexSpecs(): Record<string, IndexDescription[]> {
       { key: { householdId: 1, nameKey: 1 }, unique: true },
     ],
     [COLLECTIONS.recipeNotes]: [{ key: { householdId: 1, recipeId: 1 }, unique: true }],
+    [COLLECTIONS.recipeVersions]: [
+      { key: { userId: 1, recipeId: 1 }, unique: true },
+      { key: { householdId: 1, shared: 1 } },
+    ],
+    [COLLECTIONS.history]: [
+      { key: { householdId: 1, madeAt: -1 } },
+      { key: { householdId: 1, madeBy: 1, madeAt: -1 } },
+    ],
   };
 }
 

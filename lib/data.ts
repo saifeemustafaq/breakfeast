@@ -6,7 +6,8 @@ import { CLIENT_STALE_SEC, householdTag, userTag } from "./cache-tags";
 import { collections } from "./db";
 import { HOUR } from "./time";
 import type { Aisle } from "./recipes";
-import type { AppState, HistoryEntry, RecipeStats } from "./types";
+import type { VersionSnapshotDoc } from "./schema";
+import type { AppState, HistoryEntry, RecipeStats, SkipHistory, VersionChoice, VersionSnapshot } from "./types";
 
 const UPCOMING_FRESH_MS = 36 * HOUR;
 
@@ -24,7 +25,7 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
   const user = { _id: new ObjectId(userIdHex) };
   const c = await collections();
 
-  const [pantry, cart, upcoming, lastMade, ratings, prefs, custom, notes] = await Promise.all([
+  const [pantry, cart, upcoming, lastMade, ratings, prefs, custom, notes, versionDocs, mine] = await Promise.all([
     c.pantry.find({ householdId }).toArray(),
     c.cart.find({ householdId }).sort({ addedAt: 1 }).toArray(),
     c.upcoming.findOne({ householdId }),
@@ -60,7 +61,33 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
     c.preferences.findOne({ userId: user._id }),
     c.customIngredients.find({ householdId }).sort({ nameKey: 1 }).toArray(),
     c.recipeNotes.find({ householdId }).toArray(),
+    c.recipeVersions.find({ $or: [{ userId: user._id }, { householdId, shared: true }] }).toArray(),
+    c.history
+      .find({ householdId, madeBy: user._id }, { projection: { recipeId: 1, skipped: 1 } })
+      .sort({ madeAt: -1 })
+      .limit(SKIP_LOOKBACK)
+      .toArray(),
   ]);
+
+  const ownerIds = [...new Set(versionDocs.map((v) => v.userId.toHexString()))].map((id) => new ObjectId(id));
+  const owners = ownerIds.length
+    ? await c.users.find({ _id: { $in: ownerIds } }, { projection: { name: 1 } }).toArray()
+    : [];
+  const ownerName = new Map(owners.map((u) => [u._id.toHexString(), u.name]));
+  const versions: AppState["versions"] = { mine: {}, shared: {} };
+  for (const v of versionDocs) {
+    const ownerId = v.userId.toHexString();
+    const version = {
+      recipeId: v.recipeId,
+      ownerId,
+      ownerName: ownerName.get(ownerId) ?? "Someone",
+      additions: v.additions,
+      shared: v.shared,
+      updatedAt: v.updatedAt.toISOString(),
+    };
+    if (ownerId === userIdHex) versions.mine[v.recipeId] = version;
+    else (versions.shared[v.recipeId] ??= []).push(version);
+  }
 
   const stats: Record<number, RecipeStats> = {};
   for (const h of lastMade) {
@@ -81,6 +108,7 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
   const fresh = upcoming && loadedAt - upcoming.createdAt.getTime() < UPCOMING_FRESH_MS;
 
   return {
+    userId: userIdHex,
     stock: Object.fromEntries(
       pantry.map((p) => [p.ingredientId, { inStock: p.inStock, updatedAt: p.updatedAt.toISOString() }]),
     ),
@@ -95,6 +123,9 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
           recipeId: upcoming.recipeId,
           needsPrep: upcoming.needsPrep,
           createdAt: upcoming.createdAt.toISOString(),
+          version: upcoming.version ? snapshotFromDoc(upcoming.version) : null,
+          skipped: upcoming.skipped ?? [],
+          extras: upcoming.extras ?? [],
         }
       : null,
     lastMade: Object.fromEntries(lastMade.map((h) => [h._id, h.last.toISOString()])),
@@ -102,8 +133,48 @@ async function appState(householdIdHex: string, userIdHex: string): Promise<AppS
     disliked: prefs?.disliked ?? [],
     custom: custom.map((i) => ({ id: i.ingredientId, name: i.name, aisle: i.aisle as Aisle })),
     notes: Object.fromEntries(notes.map((n) => [n.recipeId, { text: n.text, updatedAt: n.updatedAt.toISOString() }])),
+    versions,
+    choices: Object.fromEntries(
+      Object.entries(prefs?.choices ?? {}).filter(([, v]) => isChoice(v)),
+    ) as AppState["choices"],
+    skips: skipHistory(mine),
     loadedAt,
   };
+}
+
+/** How many of your recent breakfasts to scan for skips. */
+const SKIP_LOOKBACK = 300;
+
+const isChoice = (v: string): v is VersionChoice => v === "original" || v === "mine" || /^user:[0-9a-f]{24}$/.test(v);
+
+export const snapshotFromDoc = (s: VersionSnapshotDoc): VersionSnapshot => ({
+  ownerId: s.ownerId.toHexString(),
+  ownerName: s.ownerName,
+  additions: s.additions,
+});
+
+/** Per recipe: what you skipped the last time you made it, and each item's current skip streak. */
+function skipHistory(made: { recipeId: number; skipped?: string[] }[]): Record<number, SkipHistory> {
+  const out: Record<number, SkipHistory> = {};
+  const open = new Map<number, Set<string>>();
+  for (const h of made) {
+    const skipped = h.skipped ?? [];
+    let entry = out[h.recipeId];
+    if (!entry) {
+      entry = out[h.recipeId] = { last: skipped, runs: Object.fromEntries(skipped.map((id) => [id, 1])) };
+      open.set(h.recipeId, new Set(skipped));
+      continue;
+    }
+    const streaking = open.get(h.recipeId)!;
+    for (const id of [...streaking]) {
+      if (skipped.includes(id)) entry.runs[id] += 1;
+      else streaking.delete(id);
+    }
+  }
+  for (const [id, entry] of Object.entries(out)) {
+    if (!entry.last.length) delete out[Number(id)];
+  }
+  return out;
 }
 
 /** The household's breakfasts, newest first, with the signed-in user's own rating. */
@@ -135,6 +206,9 @@ async function historyEntries(householdIdHex: string, userIdHex: string, limit: 
       madeAt: h.madeAt.toISOString(),
       ...(r ? { taste: r.taste, feel: r.feel, again: r.again } : {}),
       ...(r?.note ? { note: r.note } : {}),
+      ...(h.version ? { version: snapshotFromDoc(h.version) } : {}),
+      ...(h.skipped?.length ? { skipped: h.skipped } : {}),
+      ...(h.extras?.length ? { extras: h.extras } : {}),
     };
   });
 }

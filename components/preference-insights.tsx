@@ -5,7 +5,7 @@ import { NutritionLine } from "@/components/nutrition";
 import { Progress } from "@/components/ui/progress";
 import { NUTRIENTS, percentDV, type NutrientKey } from "@/lib/nutrition";
 import { MIN_RATED_TOTAL, type GroupComparison, type Patterns } from "@/lib/patterns";
-import { RECIPE_BY_ID } from "@/lib/recipes";
+import { INGREDIENTS, RECIPE_BY_ID } from "@/lib/recipes";
 import type { HistoryEntry } from "@/lib/types";
 
 const DATE = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" });
@@ -96,6 +96,19 @@ export function PreferenceInsights({ patterns, history }: { patterns: Patterns; 
                     {DATE.format(new Date(h.madeAt))}
                   </span>
                 </div>
+                {(h.version || h.skipped?.length || h.extras?.length) && (
+                  <span className="text-xs text-muted-foreground">
+                    {[
+                      h.version && `+ ${h.version.additions.map((a) => a.name.toLowerCase()).join(", ")}`,
+                      h.extras?.length &&
+                        `+ ${h.extras.map((a) => a.name.toLowerCase()).join(", ")} (just this time)`,
+                      h.skipped?.length &&
+                        `skipped ${h.skipped.map((id) => (INGREDIENTS[id]?.name ?? h.version?.additions.find((a) => a.ingredientId === id)?.name ?? "an item you added").toLowerCase()).join(", ")}`,
+                    ]
+                      .filter(Boolean)
+                      .join("; ")}
+                  </span>
+                )}
                 <span className="text-xs text-muted-foreground">
                   {h.taste !== undefined
                     ? `Taste ${h.taste} · felt ${h.feel} · again ${h.again}`

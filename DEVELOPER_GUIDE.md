@@ -21,7 +21,7 @@ The parts that make Breakfeast *Breakfeast* (and where most bugs hide):
 
 | Subsystem | Lives in | Why it's delicate |
 |---|---|---|
-| Today flow | `components/breakfast-flow.tsx` | A 12-step client state machine; owns optimistic stock, plan and cart state after the first load |
+| Today flow | `components/breakfast-flow.tsx`, `components/today/*` | A 12-step client state machine; owns optimistic stock, plan and cart state after the first load |
 | Recipe catalog | `lib/recipes.ts` | Recipe ids (numbers) and ingredient ids (strings) are stored in MongoDB. Renaming one orphans data |
 | Nutrition | `lib/nutrition.ts`, `lib/nutrition-data.ts`, `scripts/extract-usda.py` | Generated USDA data, hand-checked gram weights, insight copy with legal constraints |
 | Patterns and ranking | `lib/patterns.ts`, `rankRecipes` / `preferenceScore` in `lib/recipes.ts` | Thresholds decide what counts as a real preference versus noise |
@@ -37,6 +37,7 @@ The parts that make Breakfeast *Breakfeast* (and where most bugs hide):
 | `plan15.md` | The 15 recipes, exclusions (no egg, beetroot, coconut, banana, fish, beef, pork), rating method | `lib/recipes.ts` must match it. A recipe change updates both |
 | `docs/nutrition-methodology.md` | How nutrition numbers and insight copy are produced | Any change to `PORTION_GRAMS`, `RULES`, Daily Values or the USDA mapping updates it |
 | `docs/business-events.md` | Every business event name and what its data holds | A new or renamed `userAction` event updates it |
+| `docs/your-version-plan.md` | Personal versions and one-off extras: decisions and build plan | A change to how versions, skips or extras work |
 | `admin-panel-instructions.md` | The reusable spec the admin panel, auth and monitoring were built from | Read it before changing auth, sessions, the admin API or monitoring |
 | `README.md` | Setup, accounts, admin CLI, deploy | Keep the CLI table and env list in sync |
 | `.env.example` | Every environment variable | A new variable is added here in the same PR |
@@ -86,11 +87,13 @@ breakfeast/
 │   ├── household-actions.ts       # "use server": invite, respond, cancel, leave
 │   ├── preferences-actions.ts     # "use server": setDisliked (per user, not per household)
 │   ├── notes-actions.ts           # "use server": saveRecipeNote, deleteRecipeNote (one per recipe, per household)
+│   ├── version-actions.ts         # "use server": saveVersion, resetVersion, setVersionShared, copySharedVersion, chooseVersion
 │   ├── (app)/                     # The phone app: viewport-pinned shell (AppMenu, scrolling main, BottomNav) + Toaster
 │   │   ├── layout.tsx, error.tsx
 │   │   ├── page.tsx               # Today: <TodayFlow> reads ?recipe=&mode=now|tonight on the client
 │   │   ├── recipes/page.tsx       # Library
-│   │   ├── recipes/[id]/page.tsx  # Detail: header and buttons, then accordion sections
+│   │   ├── recipes/[id]/page.tsx  # Detail: header and buttons, then <RecipeBody> (original in the static shell)
+│   │   ├── recipes/[id]/edit/     # page.tsx: your version of a recipe (VersionEditor)
 │   │   ├── insights/page.tsx      # Patterns from ratings
 │   │   ├── plan/page.tsx          # Plan 3 to 5 breakfasts ahead
 │   │   ├── cart/page.tsx          # Shopping and batch-cook list
@@ -124,12 +127,18 @@ breakfeast/
 │   ├── ui/                        # shadcn primitives (base-nova)
 │   ├── admin/                     # Admin client: api.ts (adminFetch, useAdminQuery, useCursorList), shell, ui, pages
 │   ├── activity/                  # Browser monitoring: logger, auto-capture, device + GPS, toast wrapper, provider
-│   ├── breakfast-flow.tsx         # Today state machine
+│   ├── breakfast-flow.tsx         # TodayFlow and BreakfastFlow: picks the screen for the current step
+│   ├── today/                     # Today's pieces: use-today-flow.tsx (all state and actions), one
+│   │                              #   <step>-screen.tsx per step, parts.tsx (shared bits), helpers.ts
 │   ├── flow-session.ts            # Today's Step/Frame types; the unfinished breakfast saved on this phone (Resume)
 │   ├── plan-flow.tsx, cart-view.tsx, pantry-view.tsx, household-section.tsx, dislikes-view.tsx
 │   ├── kitchen-checklist.tsx, prep-details.tsx, rating-form.tsx (RatingForm, ScoreRows)
 │   ├── recipe-note.tsx            # RecipeNoteCard: read, add, edit, delete (with undo) a recipe's note
 │   ├── already-made.tsx           # AlreadyMadeDialog: "I made this recently" from a Today suggestion
+│   ├── recipe-body.tsx            # RecipeBody: version switch, prep, ingredients, steps, nutrition for the picked version
+│   ├── version-editor.tsx         # VersionEditor: add up to 8 pantry items, amounts, night/morning, share, delete
+│   ├── addition-picker.tsx        # IngredientPicker, AdditionRow, AddOnceDialog: shared by the editor and Today's gather
+│   ├── version-switch.tsx         # VersionSwitch: Your version / Original / shared chips (recipe page and Today)
 │   ├── recipe-header.tsx, recipe-library.tsx, nutrition.tsx, preference-insights.tsx
 │   ├── phone-input.tsx, page-skeleton.tsx, bottom-nav.tsx, app-menu.tsx
 │   ├── navigation.tsx             # APP_SCROLL_ID, NavTracker, BackButton, goBack(), scrollAppToTop()
@@ -141,6 +150,9 @@ breakfeast/
 ├── lib/
 │   ├── recipes.ts                 # Catalog: ingredients, aisles, recipes, traits, ranking helpers (isomorphic)
 │   ├── nutrition.ts               # Nutrients, PORTION_GRAMS, totals, insight RULES (isomorphic)
+│   ├── measures.ts                # Amounts you can add per catalog ingredient, with USDA gram weights (isomorphic)
+│   ├── versions.ts                # Personal versions: applyAdditions, withSkips, resolveRecipe, snapshots, validation (isomorphic)
+│   ├── version-store.ts           # server-only: snapshotFor() freezes the chosen version for history and plans
 │   ├── nutrition-data.ts          # GENERATED by scripts/extract-usda.py. Never hand-edit
 │   ├── patterns.ts                # Preference analysis for /insights (isomorphic)
 │   ├── cart.ts                    # cartUnlocks(), idsToRemoveFor(): what the cart unlocks (isomorphic)
@@ -171,7 +183,7 @@ breakfeast/
 │   ├── admin-cli.ts               # db:init, db:reset-app-data, admin:create|reset-password|list|disable|enable
 │   ├── predeploy.ts               # npm run predeploy: tests, tsc, lint, build, Netlify-style secrets scan
 │   └── extract-usda.py            # USDA FoodData Central CSV to lib/nutrition-data.ts
-├── docs/nutrition-methodology.md, docs/business-events.md
+├── docs/nutrition-methodology.md, docs/business-events.md, docs/your-version-plan.md
 └── plan15.md, admin-panel-instructions.md, README.md, AGENTS.md, .env.example
 ```
 
@@ -180,13 +192,13 @@ breakfeast/
 | Layer | May import | Must not import |
 |---|---|---|
 | `components/ui/*` | `cn`, `@base-ui/react`, other `ui/*` | Anything domain |
-| `components/*` (user app) | `ui/*`, `activity/*`, isomorphic `lib/*`, `@/app/actions`, `@/app/household-actions`, `lib/*` **types** | `lib/db`, `lib/data`, `lib/auth/*` values, anything `server-only`, `toast` from `sonner` (lint error; use `@/components/activity/toast`) |
+| `components/*` (user app) | `ui/*`, `activity/*`, isomorphic `lib/*`, `@/app/actions`, `@/app/household-actions`, `@/app/version-actions`, `@/app/notes-actions`, `@/app/preferences-actions`, `lib/*` **types** | `lib/db`, `lib/data`, `lib/auth/*` values, anything `server-only`, `toast` from `sonner` (lint error; use `@/components/activity/toast`) |
 | `components/activity/*` | Isomorphic `lib/monitoring/*`, `lib/time`, `sonner` (in `toast.ts` only) | React state outside `activity-provider.tsx`, anything `server-only` |
 | `components/admin/*` | `lib/api-client`, `@base-ui/react`, `sonner`, isomorphic `lib/{monitoring/labels,phone,time,return-path}`, `lib/admin/*` and `lib/schema` **types** (`import type` only), its own files | `components/ui/*`, `components/activity/*` (the admin isn't monitored), Tailwind classes, Server Actions |
 | `app/(app)/**/page.tsx` | `lib/data`, `lib/household-data`, components | Raw collection queries |
-| `app/actions.ts`, `app/household-actions.ts` | `lib/action`, `lib/db`, `lib/recipes`, `lib/households` | React, components |
+| `app/actions.ts`, `app/household-actions.ts`, `app/version-actions.ts`, `app/notes-actions.ts`, `app/preferences-actions.ts` | `lib/action`, `lib/db`, `lib/recipes`, `lib/households`, `lib/version-store`, `lib/auth/*` (as needed), isomorphic `lib/{ingredients,phone,time,versions,types}`, `lib/schema` **types** | React, components |
 | `app/api/**/route.ts` | `lib/api/http`, `lib/admin/*`, `lib/auth/*` | Business logic inline (route files are 3 to 15 lines; keep it that way) |
-| Isomorphic `lib/*` (`recipes`, `nutrition`, `patterns`, `cart`, `cache-tags`, `stock`, `phone`, `types`, `time`, `action-result`, `monitoring/{ua,labels,payload,redact,trace}`) | Each other, `lib/schema` **types** | `lib/db`, `lib/auth/*`, `server-only`, React |
+| Isomorphic `lib/*` (`recipes`, `nutrition`, `nutrition-data`, `patterns`, `cart`, `cache-tags`, `stock`, `phone`, `types`, `time`, `action-result`, `versions`, `measures`, `search`, `export`, `ingredients`, `return-path`, `utils`, `api-client`, `monitoring/{ua,labels,payload,redact,trace}`) | Each other, `lib/schema` **types** | `lib/db`, `lib/auth/*`, `server-only`, React |
 | `lib/schema.ts` | `mongodb` **types**, `lib/auth/config` | `lib/db` (the CLI imports schema without the app's client) |
 
 **Grouping philosophy.** Group by domain. A route's private client component sits next to its `page.tsx` (`login/login-form.tsx`). When a second route needs it, move it to `components/`. Shared user-app components live flat in `components/`; the admin panel lives in `components/admin/`.
@@ -458,14 +470,14 @@ Built to section 11 of `admin-panel-instructions.md`; read it before changing a 
 
 ## 8. Households
 
-Every user belongs to exactly one household (`users.householdId`). **All breakfast data is scoped by household**: pantry, your own items, cart, the plan for tomorrow, recipe notes and history. **Ratings and dislikes are per user** within a household (`ratings` is unique on `historyId + userId`, `preferences` on `userId`), so two people can rate the same breakfast differently and hide different ingredients. `getAppState()` shows household-wide "made" counts and the signed-in user's own averages and dislikes.
+Every user belongs to exactly one household (`users.householdId`). **All breakfast data is scoped by household**: pantry, your own items, cart, the plan for tomorrow, recipe notes and history. **Ratings, dislikes, recipe versions and last-picked versions are per user** within a household (`ratings` is unique on `historyId + userId`, `preferences` on `userId`), so two people can rate the same breakfast differently and hide different ingredients. `getAppState()` shows household-wide "made" counts and the signed-in user's own averages and dislikes.
 
 `createUser` gives each new user a fresh household of one.
 
 Sharing:
 
 - `app/household-actions.ts`: invite by mobile number, accept or decline, cancel, leave. The UI is the `/household` page, reached from the side menu.
-- `lib/households.ts`: `acceptInvite` (merges the joiner's solo data into the inviting household, de-duplicating history, and folding own items with the same name into the target's item), `leaveHousehold` (copies the household's data into a new one for the leaver, taking their own ratings), `moveToHousehold`. Each runs inside `withTransaction`.
+- `lib/households.ts`: `acceptInvite` (merges the joiner's solo data into the inviting household, de-duplicating history, and folding own items with the same name into the target's item), `leaveHousehold` (copies the household's data into a new one for the leaver, taking their own ratings and versions), `moveToHousehold`. Each runs inside `withTransaction`.
 - `lib/household-data.ts`: `getHouseholdView()` for the `/household` page.
 - `lib/admin/households.ts`: the admin's Household tab (remove a member, move a user into another household), audited as `household.member_removed` and `household.member_moved`.
 
@@ -508,12 +520,13 @@ Rules for this code:
 | `household_invites` | `toLoginId + status`, `householdId + status` | Pending, accepted, declined, cancelled invites |
 | `pantry` | unique `householdId + ingredientId` | `inStock` and `updatedAt` per ingredient |
 | `cart` | unique `householdId + ingredientId` | `kind: "buy" \| "cook"`, `forRecipes` |
-| `upcoming` | unique `householdId` | The one plan for tomorrow (ignored after 36 h) |
-| `history` | `householdId + madeAt` | One row per breakfast made, with `madeBy` |
+| `upcoming` | unique `householdId` | The one plan for tomorrow (ignored after 36 h), with the version snapshot, anything skipped and any one-off extras added while prepping |
+| `history` | `householdId + madeAt`, `householdId + madeBy + madeAt` | One row per breakfast made, with `madeBy`, and when it differs from the original a frozen `version` snapshot, the `skipped` ingredient ids and one-off `extras` (with names) |
 | `ratings` | unique `historyId + userId` | Taste, feel, again (1 to 5), optional note |
-| `preferences` | unique `userId` | `disliked`: ingredient ids this person won't eat |
+| `preferences` | unique `userId` | `disliked`: ingredient ids this person won't eat; `choices`: the version last picked per recipe |
 | `custom_ingredients` | unique `householdId + ingredientId`, unique `householdId + nameKey` | Items a household added by hand (`ingredientId` is `custom-<hex>`). They live in Pantry and Cart only, never in recipes |
 | `recipe_notes` | unique `householdId + recipeId` | The household's one note per recipe (`text`, `updatedAt`, `updatedBy`). Saving an empty note deletes it. On a household merge the target's note wins |
+| `recipe_versions` | unique `userId + recipeId`, `householdId + shared` | One person's version of a recipe: up to 8 `additions` (`ingredientId`, `qty`, `grams`, `when`) and `shared`. `householdId` follows the owner on merges and leaves |
 | `access_events` | `userId + at`, partial `flags.0 + at`, TTL `expiresAt` (365 days) | Sign-in, sign-out, app open, revocation, with IP geo, GPS, device and flags |
 | `devices` | unique `userId + deviceId`, `userId + fingerprint` | One row per browser a user has used; kept while the user exists |
 | `activity_events` | `userId + clientAt`, `pageLoadId + seq`, TTL `receivedAt` (30 days) | Clicks, navigation, API calls, errors, toasts and business events |
@@ -521,7 +534,7 @@ Rules for this code:
 
 ### Resetting
 
-`npm run db:reset-app-data -- --yes` deletes pantry, cart, upcoming, history, ratings, preferences, custom ingredients and recipe notes for every household and recreates their indexes. It never touches accounts. `db:init` refuses to run if it finds breakfast rows without a `householdId` (data from before accounts existed).
+`npm run db:reset-app-data -- --yes` deletes pantry, cart, upcoming, history, ratings, preferences, custom ingredients, recipe notes and recipe versions for every household and recreates their indexes. It never touches accounts. `db:init` refuses to run if it finds breakfast rows without a `householdId` (data from before accounts existed).
 
 ---
 
@@ -561,7 +574,7 @@ Read `docs/nutrition-methodology.md` first. The short version:
 - **`isDisliked`**: score at or below 2.25, or "again" at or below 2.
 - **`rankRecipes`** orders the Today suggestions: disliked recipes last, then least recently made first (never made leads), then by id. It's deterministic; keep it that way so "skip" walks a stable list. It takes the user's `disliked` list and drops those breakfasts entirely, which is a different thing from the rating-derived `isDisliked` that only pushes them down.
 - **`visibleRecipes(disliked)`** is the single filter for "breakfasts this person will eat". Anything that lists or counts recipes for a user (Today, Plan, Recipes, cart unlocks, patterns) goes through it, so an allergy can't leak back in through a new surface.
-- **`analyzePatterns`** only reports a difference between groups (sweet vs savory, warm vs cold, format, protein, protein and fiber vs how she felt) when there are at least 4 rated meals overall (`MIN_RATED_TOTAL`), 2 per group (`MIN_PER_GROUP`) and a gap of at least 0.75 (`MIN_GAP`). These guard against reading noise as preference. Raise them freely; lower them only with a reason.
+- **`analyzePatterns`** only reports a difference between groups (sweet vs savory, warm vs cold, format, protein, protein and fiber vs how you felt) when there are at least 4 rated meals overall (`MIN_RATED_TOTAL`), 2 per group (`MIN_PER_GROUP`) and a gap of at least 0.75 (`MIN_GAP`). These guard against reading noise as preference. Raise them freely; lower them only with a reason.
 - `lib/patterns.test.ts` covers the thresholds. Add a case for any new comparison.
 
 ---
@@ -590,6 +603,8 @@ Read `docs/nutrition-methodology.md` first. The short version:
 - **Your own items.** Pantry ("Add an ingredient", or the no-match line of its search) and Cart (the plus button) open `AddIngredientDialog`. Adding always puts the item on the pantry list; the "Also add to the shopping cart" box (off from Pantry, on from Cart) decides between in stock and out of stock plus on the list. A name that matches a catalog or existing item reuses it. Screens that list pantry or cart entries look names up with `ingredientsWith(state.custom)`, not `INGREDIENTS`.
 - **One note per recipe, not comments.** `RecipeNoteCard` shows the household's note on the recipe page (with "Add a note for next time" when there isn't one) and, when one exists, on Today's suggestion, last night's plan, and the gather and steps screens, so it's in view while cooking. The rating form's text box edits that same note (prefilled); new ratings no longer carry their own note, and old rating notes stay in history and exports. Delete has an Undo toast instead of a confirm.
 - **Resume an unfinished breakfast.** Once Today reaches the kitchen check, missing, gather or steps screen, `BreakfastFlow` saves its `nav` (screen and Back trail) and the gather and step ticks to `localStorage` through `flow-session.ts`; the start screen then shows "Resume: X" with how far you got, plus Discard. It's per phone on purpose: an interrupted breakfast belongs to whoever was making it. A "now" session lasts 3 hours. A "tonight" session lasts 18 hours, except that the next morning an unfinished night prep becomes "Did you finish prepping X last night?" (Yes plans it as prepped and opens the morning screen; No discards it) and an unfinished night check is dropped. Reaching serve, tonightDone or done, "Start over" and Discard clear it. Kitchen check answers are saved to the server as they're submitted, so only the screen position and ticks need saving.
+- **Your version of a recipe.** Original ingredients are locked; you add up to 8 items from your pantry list (catalog items with a preset amount from `lib/measures.ts`, or your own items with a short free-text amount that nutrition doesn't count). `applyAdditions` in `lib/versions.ts` turns a version into an ordinary `Recipe` with `added` ingredients, an "Add your extras" step and a `variant` (its own gram weights and cache key), so every nutrition helper, insight and screen works on it unchanged. `resolveRecipe` picks what to show: your last pick (`preferences.choices`), else your version, else the original; saving a version makes it your pick. Sharing is live: others see your latest and can copy it into their own. Today shows the switch on the suggestion; the frame carries the choice so Back and Resume keep it. The gather list has Skip on every ingredient (and "Skipped last time"), "Make it anyway without them" counts missing items as skipped, night skips ride along on tomorrow's plan, and `markMade`, `planTomorrow` and `logBreakfast` freeze the version server-side (`snapshotFor` in `lib/version-store.ts`) so history, patterns, the diary and nutrition exports count what was actually eaten. Skipping the same addition 3 times running offers to take it out. Deleting one of your own items strips it from every version.
+- **One-off extras.** The gather screen's "Add something just this time" (`AddOnceDialog`) adds a pantry item for that breakfast only. They live in `Progress.extras` (so Resume keeps them), are layered on with `withExtras` (one pass with the version's additions, tagged `oneOff`), and share the limit of 8 with the version. `planTomorrow` stores night extras on the plan and `markMade` carries them into history with any morning extras; the server checks them with `extrasFor` in `lib/version-store.ts` (same rules as a version, `when` fixed by the screen). They're kept apart from the version snapshot, so "Original plus a one-off" has no fake owner. One-offs have Remove instead of Skip, never count as skips, and the finished screen offers to add them to your version (starting one if needed).
 - **"I made this recently."** A Today suggestion has this link: `AlreadyMadeDialog` logs the breakfast (`logBreakfast`, today up to three days back in the UI, six on the server) with an optional rating (all three scores or none) and the note, then shows the next suggestion. `BreakfastFlow` keeps `madeHere` so breakfasts made or logged on the screen drop down the ranking right away, since `initial.lastMade` was loaded before them.
 - **Long lists get a search field.** `SearchField` with `matchesQuery()` from `lib/search.ts` (every word must match, case and accents ignored) on Recipes (name, blurb, ingredients, traits), Pantry and Allergies and dislikes. Show a "No ... match" line when nothing does.
 - **Big touch targets.** Primary actions are `h-12 text-base`; secondary are `h-11`. Inputs on the login form are `h-12 text-base` so iOS doesn't zoom.
@@ -718,11 +733,13 @@ Not reasons to split: a long static table (`lib/recipes.ts` is mostly data; `lib
 
 | File | Lines | Notes |
 |---|---|---|
-| `components/breakfast-flow.tsx` | ~990 | One component per step case would help; extract `ModeButton`, the suggest card and the serve step first |
+| `components/today/use-today-flow.tsx` | ~600 | Today's state and actions, split out of `breakfast-flow.tsx` so each screen has its own file. One state machine; fine as long as it stays logic only |
 | `lib/recipes.ts` | ~635 | Data. Fine. If helpers grow, move them to `lib/recipe-helpers.ts` |
 | `lib/nutrition.ts` | ~550 | `RULES` (insight copy) could move to `lib/nutrition-insights.ts` |
 | `lib/admin/users.ts` | ~540 | Split sessions and audit listing into `lib/admin/sessions.ts` and `lib/admin/audit.ts` |
 | `components/admin/user-detail.tsx` | ~460 | Profile and Sessions tabs could move out, as Household (`user-household.tsx`) and the monitoring tabs (`user-monitoring.tsx`) already have |
+
+**Today's screens** each take `flow` (the object `useTodayFlow` returns) and, when they read the step's fields, `step` narrowed to their case. A new step is a `Step` variant in `flow-session.ts`, a screen file in `components/today/`, and a case in `BreakfastFlow`. Logic shared by screens goes in the hook; markup only one screen uses stays in that screen's file. Keep render-time navigation (like falling back to the start screen when the plan is gone) in `BreakfastFlow`, not in a screen, because a child can't update the parent's state while rendering.
 
 When splitting, move code without changing it in the same commit, so the diff is reviewable.
 

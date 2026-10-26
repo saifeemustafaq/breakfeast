@@ -269,8 +269,8 @@ type AuditRow = {
 | Method & path | Body / query | Success | Notes |
 | --- | --- | --- | --- |
 | `POST /api/auth/login` | `{ loginId, password, device }` (`device` per §11.3) | `200 { data: { user: { id, name, loginId } } }`, sets session and device cookies | Rate limited; errors `INVALID_CREDENTIALS`, `ACCOUNT_PAUSED`, `ACCOUNT_DISABLED`, `RATE_LIMITED` |
-| `POST /api/auth/logout` | — | `204`, clears session cookie | Revokes the server session |
-| `GET /api/auth/me` | — | `200 { data: { user: { id, name, loginId } } }` | Used by the app shell |
+| `POST /api/auth/logout` | none | `204`, clears session cookie | Revokes the server session |
+| `GET /api/auth/me` | none | `200 { data: { user: { id, name, loginId } } }` | Used by the app shell |
 | `POST /api/auth/app-open` | `{ device }` | `204` | Monitoring (§11.2); never returns flags |
 | `POST /api/activity` | `{ pageLoadId, events: ActivityInput[] }` | `202 { data: { stored } }` | Monitoring (§11.6) |
 
@@ -281,23 +281,23 @@ All require an admin session except login. "Reauth" marks endpoints that return 
 | Method & path | Body / query | Success |
 | --- | --- | --- |
 | `POST /api/admin/auth/login` | `{ adminId, password }` | `200 { data: { admin: { id, adminId } } }`, sets admin cookie |
-| `POST /api/admin/auth/logout` | — | `204` |
-| `GET /api/admin/auth/me` | — | `200 { data: { admin: { id, adminId }, reauthValidUntil } }` |
+| `POST /api/admin/auth/logout` | none | `204` |
+| `GET /api/admin/auth/me` | none | `200 { data: { admin: { id, adminId }, reauthValidUntil } }` |
 | `POST /api/admin/auth/reauth` | `{ password }` | `200 { data: { reauthValidUntil } }` |
 | `POST /api/admin/auth/change-password` (Reauth) | `{ currentPassword, newPassword }` | `204`; all of this admin's sessions revoked, cookie cleared |
-| `GET /api/admin/overview` | — | `200 { data: { counts: { total, active, paused, disabled, activeNow, alerts24h }, recentAudit: AuditRow[], recentUsers: UserSummary[] } }` |
+| `GET /api/admin/overview` | none | `200 { data: { counts: { total, active, paused, disabled, activeNow, alerts24h }, recentAudit: AuditRow[], recentUsers: UserSummary[] } }` |
 | `GET /api/admin/users` | `?q=&status=&sort=createdAt\|name\|lastLoginAt\|lastSeenAt&order=asc\|desc&page=&pageSize=` | `200` paged `UserSummary[]` |
 | `POST /api/admin/users` | `{ name, loginId, notes?, details?, status: "active"\|"paused", password: { mode: "generate" } \| { mode: "manual", value } }` | `201 { data: { user: UserDetail, issuedPassword: string } }` |
-| `GET /api/admin/users/:id` | — | `200 { data: UserDetail }` |
+| `GET /api/admin/users/:id` | none | `200 { data: UserDetail }` |
 | `PATCH /api/admin/users/:id` | `{ expectedUpdatedAt, name?, loginId?, notes?, details? }` | `200 { data: UserDetail }`; `CONFLICT` when stale |
 | `POST /api/admin/users/:id/password` (Reauth) | `{ mode: "generate" } \| { mode: "manual", value }` | `200 { data: { issuedPassword, sessionsRevoked } }` |
 | `POST /api/admin/users/:id/pause` | `{ reason?, until? }` | `200 { data: UserDetail }` |
-| `POST /api/admin/users/:id/resume` | — | `200 { data: UserDetail }` |
-| `POST /api/admin/users/:id/deactivate` | — | `200 { data: UserDetail }` |
-| `POST /api/admin/users/:id/activate` | — | `200 { data: UserDetail }` |
+| `POST /api/admin/users/:id/resume` | none | `200 { data: UserDetail }` |
+| `POST /api/admin/users/:id/deactivate` | none | `200 { data: UserDetail }` |
+| `POST /api/admin/users/:id/activate` | none | `200 { data: UserDetail }` |
 | `GET /api/admin/users/:id/sessions` | `?cursor=` | cursor `SessionRow[]` |
-| `DELETE /api/admin/users/:id/sessions/:sessionId` | — | `200 { data: { revoked: 1 } }` |
-| `DELETE /api/admin/users/:id/sessions` | — | `200 { data: { revoked: n } }` |
+| `DELETE /api/admin/users/:id/sessions/:sessionId` | none | `200 { data: { revoked: 1 } }` |
+| `DELETE /api/admin/users/:id/sessions` | none | `200 { data: { revoked: n } }` |
 | `GET /api/admin/users/:id/devices` | `?cursor=` | cursor `DeviceRow[]` |
 | `GET /api/admin/users/:id/access` | `?kind=&flagged=true&cursor=` | cursor `AccessRow[]` |
 | `GET /api/admin/users/:id/activity` | `?sessionId=&pageLoadId=&type=&from=&to=&q=&cursor=` | cursor `ActivityRow[]` |

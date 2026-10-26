@@ -29,6 +29,10 @@ export type RecipeIngredient = {
   id: string;
   qty: string;
   when?: "night" | "morning";
+  /** Added by a personal version, not part of the original. */
+  added?: boolean;
+  /** Added just for this breakfast, not saved to any version. */
+  oneOff?: boolean;
 };
 
 export type Recipe = {
@@ -41,6 +45,14 @@ export type Recipe = {
   ingredients: RecipeIngredient[];
   nightSteps?: string[];
   steps: string[];
+  /** Set on a personal version or a skipped-item variant (see lib/versions.ts). */
+  variant?: {
+    /** Nutrition cache key; unique per distinct set of ingredients and amounts. */
+    key: string;
+    portions: Record<string, number>;
+    /** The household's own items in this variant, which have no nutrition data. */
+    uncounted: string[];
+  };
 };
 
 export const AISLE_ORDER: Aisle[] = [
@@ -423,7 +435,7 @@ export const RECIPES: Recipe[] = [
     name: "Chicken–broccoli rice bowl",
     prep: "none",
     minutes: 8,
-    blurb: "Does she actually want chicken at breakfast?",
+    blurb: "Do you actually want chicken at breakfast?",
     ingredients: [
       { id: "chicken-cooked", qty: "3 oz" },
       { id: "rice-cooked", qty: "½ cup" },
@@ -480,7 +492,7 @@ export const RECIPES: Recipe[] = [
     name: "Savory mushroom–edamame oats",
     prep: "none",
     minutes: 10,
-    blurb: "Do oats work for her as a savory food?",
+    blurb: "Do oats work for you as a savory food?",
     ingredients: [
       { id: "rolled-oats", qty: "½ cup" },
       { id: "edamame", qty: "½ cup" },
@@ -513,7 +525,7 @@ export function recipeItems(recipe: Recipe, scope: CheckScope = "all") {
 export function checkableIds(recipe: Recipe, scope: CheckScope = "all") {
   return recipeItems(recipe, scope)
     .map((ri) => ri.id)
-    .filter((id) => !INGREDIENTS[id].always);
+    .filter((id) => !INGREDIENTS[id]?.always);
 }
 
 /**
@@ -525,7 +537,7 @@ export const DISLIKABLE = ALL_INGREDIENTS.filter((i) => !i.batch);
 /** Which of your disliked ingredients this recipe uses, counting batches as their raw base. */
 export function dislikedIn(recipe: Recipe, disliked: Iterable<string>) {
   const set = disliked instanceof Set ? disliked : new Set(disliked);
-  const ids = recipe.ingredients.map((ri) => INGREDIENTS[ri.id].batch?.from ?? ri.id);
+  const ids = recipe.ingredients.map((ri) => INGREDIENTS[ri.id]?.batch?.from ?? ri.id);
   return [...new Set(ids.filter((id) => set.has(id)))];
 }
 
@@ -536,13 +548,13 @@ export function visibleRecipes(disliked: Iterable<string>, recipes: Recipe[] = R
 }
 
 export function usesCookedAhead(recipe: Recipe) {
-  return recipe.ingredients.some((ri) => INGREDIENTS[ri.id].batch);
+  return recipe.ingredients.some((ri) => INGREDIENTS[ri.id]?.batch);
 }
 
 /** Cooked-ahead components this recipe needs, with how to make each one. */
 export function cookedAheadItems(recipe: Recipe) {
   return recipe.ingredients
-    .filter((ri) => INGREDIENTS[ri.id].batch)
+    .filter((ri) => INGREDIENTS[ri.id]?.batch)
     .map((ri) => ({ ...INGREDIENTS[ri.id], qty: ri.qty, batch: INGREDIENTS[ri.id].batch! }));
 }
 
@@ -590,7 +602,7 @@ export const RECIPE_TRAITS: Record<number, Traits> = {
 
 /**
  * One 1–5 score per recipe from its ratings: wanting it again matters most,
- * then taste, then how she felt afterward. Null until rated.
+ * then taste, then how you felt afterward. Null until rated.
  */
 export function preferenceScore(stats: RecipeStats | undefined) {
   if (!stats || stats.again === null || stats.taste === null || stats.feel === null) return null;
@@ -602,12 +614,12 @@ export function isDisliked(stats: RecipeStats | undefined) {
   return score !== null && (score <= 2.25 || (stats?.again ?? 5) <= 2);
 }
 
-export function sortByKitchen<T extends { id: string }>(items: T[]) {
-  return [...items].sort(
-    (a, b) =>
-      AISLE_ORDER.indexOf(INGREDIENTS[a.id].aisle) -
-      AISLE_ORDER.indexOf(INGREDIENTS[b.id].aisle),
-  );
+export function sortByKitchen<T extends { id: string }>(
+  items: T[],
+  ingredients: Record<string, Ingredient> = INGREDIENTS,
+) {
+  const spot = (id: string) => AISLE_ORDER.indexOf(ingredients[id]?.aisle ?? "Pantry");
+  return [...items].sort((a, b) => spot(a.id) - spot(b.id));
 }
 
 /**

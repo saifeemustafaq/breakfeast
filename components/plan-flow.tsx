@@ -16,6 +16,8 @@ import { failureMessage, unwrap } from "@/lib/action-result";
 import { KitchenChecklist } from "@/components/kitchen-checklist";
 import { BackButton, scrollAppToTop } from "@/components/navigation";
 import { NutritionLine } from "@/components/nutrition";
+import { ingredientsWith } from "@/lib/ingredients";
+import { resolveRecipe } from "@/lib/versions";
 import { RecipeBadges } from "@/components/recipe-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +43,9 @@ export function PlanFlow({ initial }: { initial: AppState }) {
     () => rankRecipes(initial.lastMade, initial.stats, initial.disliked),
     [initial.lastMade, initial.stats, initial.disliked],
   );
+  const ings = useMemo(() => ingredientsWith(initial.custom), [initial.custom]);
+  /** Each breakfast in the version you'd make it. */
+  const recipeOf = (id: number) => resolveRecipe(initial, id, ings)?.recipe ?? RECIPE_BY_ID[id];
   const [step, setScreen] = useState<Step>({ name: "count" });
   const [picked, setPicked] = useState<number[]>([]);
   const [rejected, setRejected] = useState<number[]>([]);
@@ -70,9 +75,9 @@ export function PlanFlow({ initial }: { initial: AppState }) {
     setPicked((p) => p.map((x) => (x === id ? replacement : x)));
   }
 
-  const ingredientIds = [...new Set(picked.flatMap((id) => checkableIds(RECIPE_BY_ID[id])))];
+  const ingredientIds = [...new Set(picked.flatMap((id) => checkableIds(recipeOf(id))))];
   const usedBy = (ingId: string) =>
-    picked.filter((id) => checkableIds(RECIPE_BY_ID[id]).includes(ingId));
+    picked.filter((id) => checkableIds(recipeOf(id)).includes(ingId));
 
   switch (step.name) {
     case "count":
@@ -114,7 +119,7 @@ export function PlanFlow({ initial }: { initial: AppState }) {
           </div>
           <ul className="flex flex-col gap-2">
             {picked.map((id, i) => {
-              const r = RECIPE_BY_ID[id];
+              const r = recipeOf(id);
               return (
                 <li key={id} className="flex items-start gap-3 rounded-xl border bg-card p-3">
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold">
@@ -188,6 +193,7 @@ export function PlanFlow({ initial }: { initial: AppState }) {
             knownInStock={(id) => rememberedInStock(id, initial.stock, initial.loadedAt)}
             submitLabel="Build my shopping list"
             pending={pending}
+            ingredients={ings}
             onSubmit={(status) =>
               startTransition(async () => {
                 const have = Object.keys(status).filter((id) => status[id] === "have");
@@ -207,20 +213,20 @@ export function PlanFlow({ initial }: { initial: AppState }) {
 
     case "summary": {
       const missingFor = (id: number) =>
-        checkableIds(RECIPE_BY_ID[id]).filter((i) => step.status[i] === "missing");
+        checkableIds(recipeOf(id)).filter((i) => step.status[i] === "missing");
       const ready = picked.filter((id) => missingFor(id).length === 0);
       const blocked = picked.filter((id) => missingFor(id).length > 0);
       const toBuy = Object.keys(step.status).filter(
-        (id) => step.status[id] === "missing" && !INGREDIENTS[id].batch,
+        (id) => step.status[id] === "missing" && !INGREDIENTS[id]?.batch,
       );
       const toCook = Object.keys(step.status).filter(
-        (id) => step.status[id] === "missing" && INGREDIENTS[id].batch,
+        (id) => step.status[id] === "missing" && INGREDIENTS[id]?.batch,
       );
       const overnight = picked.filter((id) => RECIPE_BY_ID[id].prep === "overnight");
       const cookedAhead = Object.values(
         picked.reduce<Record<string, ReturnType<typeof cookedAheadItems>[number] & { recipes: number[] }>>(
           (acc, id) => {
-            for (const item of cookedAheadItems(RECIPE_BY_ID[id])) {
+            for (const item of cookedAheadItems(recipeOf(id))) {
               acc[item.id] ??= { ...item, recipes: [] };
               acc[item.id].recipes.push(id);
             }
@@ -264,7 +270,7 @@ export function PlanFlow({ initial }: { initial: AppState }) {
                     <p className="font-medium">{RECIPE_BY_ID[id].name}</p>
                     <p className="text-muted-foreground">
                       {missingFor(id)
-                        .map((i) => INGREDIENTS[i].name)
+                        .map((i) => ings[i]?.name ?? i)
                         .join(", ")}
                     </p>
                   </div>

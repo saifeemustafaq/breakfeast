@@ -61,12 +61,21 @@ async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: Obje
   const dstPlan = await c.upcoming.findOne({ householdId: intoId }, { session });
   if (srcPlan && !dstPlan) {
     await c.upcoming.insertOne(
-      { householdId: intoId, recipeId: srcPlan.recipeId, needsPrep: srcPlan.needsPrep, createdAt: srcPlan.createdAt },
+      {
+        householdId: intoId,
+        recipeId: srcPlan.recipeId,
+        needsPrep: srcPlan.needsPrep,
+        createdAt: srcPlan.createdAt,
+        ...(srcPlan.version ? { version: srcPlan.version } : {}),
+        ...(srcPlan.skipped ? { skipped: srcPlan.skipped } : {}),
+        ...(srcPlan.extras ? { extras: srcPlan.extras } : {}),
+      },
       { session },
     );
   }
 
   await mergeHistory({ c, session, now }, fromId, intoId);
+  await moveVersions({ c, session, now }, fromId, intoId, remap);
 
   const dstNotes = new Set(
     (await c.recipeNotes.find({ householdId: intoId }, { session, projection: { recipeId: 1 } }).toArray()).map((n) => n.recipeId),
@@ -88,6 +97,22 @@ async function mergeData({ c, session, now }: Tx, fromId: ObjectId, intoId: Obje
   );
   await c.households.deleteOne({ _id: fromId }, { session });
   await c.households.updateOne({ _id: intoId }, { $set: { updatedAt: now } }, { session });
+}
+
+/** Personal versions move with their owners; additions follow any own items that took over a target id. */
+async function moveVersions({ c, session }: Tx, fromId: ObjectId, intoId: ObjectId, remap: Map<string, string>) {
+  const versions = await c.recipeVersions.find({ householdId: fromId }, { session }).toArray();
+  if (!versions.length) return;
+  await c.recipeVersions.bulkWrite(
+    versions.map((v) => {
+      const seen = new Set<string>();
+      const additions = v.additions
+        .map((a) => ({ ...a, ingredientId: remap.get(a.ingredientId) ?? a.ingredientId }))
+        .filter((a) => !seen.has(a.ingredientId) && !!seen.add(a.ingredientId));
+      return { updateOne: { filter: { _id: v._id }, update: { $set: { householdId: intoId, additions } } } };
+    }),
+    { session },
+  );
 }
 
 /** Moves the source's own items across and returns source id to target id for name clashes. */
@@ -143,7 +168,7 @@ async function mergeHistory({ c, session }: Tx, fromId: ObjectId, intoId: Object
 
 /**
  * Gives `user` a new household holding a copy of `fromId`'s own items, pantry, cart, plan, recipe notes and history.
- * The user's own ratings move with them; everyone else's stay behind.
+ * The user's own ratings and versions move with them; everyone else's stay behind.
  */
 async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId): Promise<ObjectId> {
   const newId = new ObjectId();
@@ -196,7 +221,15 @@ async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId)
   }
   if (plan) {
     await c.upcoming.insertOne(
-      { householdId: newId, recipeId: plan.recipeId, needsPrep: plan.needsPrep, createdAt: plan.createdAt },
+      {
+        householdId: newId,
+        recipeId: plan.recipeId,
+        needsPrep: plan.needsPrep,
+        createdAt: plan.createdAt,
+        ...(plan.version ? { version: plan.version } : {}),
+        ...(plan.skipped ? { skipped: plan.skipped } : {}),
+        ...(plan.extras ? { extras: plan.extras } : {}),
+      },
       { session },
     );
   }
@@ -206,7 +239,18 @@ async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId)
       if (!h._id) return [];
       const copyId = new ObjectId();
       copyOf.set(h._id.toHexString(), copyId);
-      return [{ _id: copyId, householdId: newId, recipeId: h.recipeId, madeAt: h.madeAt, madeBy: h.madeBy }];
+      return [
+        {
+          _id: copyId,
+          householdId: newId,
+          recipeId: h.recipeId,
+          madeAt: h.madeAt,
+          madeBy: h.madeBy,
+          ...(h.version ? { version: h.version } : {}),
+          ...(h.skipped ? { skipped: h.skipped } : {}),
+          ...(h.extras ? { extras: h.extras } : {}),
+        },
+      ];
     });
     await c.history.insertMany(copies, { session });
   }
@@ -218,6 +262,7 @@ async function copyOut({ c, session, now }: Tx, user: UserDoc, fromId: ObjectId)
       : [];
   });
   if (ratingOps.length) await c.ratings.bulkWrite(ratingOps, { session });
+  await c.recipeVersions.updateMany({ userId: user._id }, { $set: { householdId: newId } }, { session });
 
   await c.householdInvites.updateMany(
     { householdId: fromId, fromUserId: user._id, status: "pending" },

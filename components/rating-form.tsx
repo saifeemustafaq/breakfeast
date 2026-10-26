@@ -15,7 +15,7 @@ const QUESTIONS = [
   { key: "taste", label: "Taste", low: "Didn't like it", high: "Loved it" },
   {
     key: "feel",
-    label: "How she felt afterward",
+    label: "How you felt afterward",
     low: "Sluggish or hungry soon",
     high: "Energized and full",
   },

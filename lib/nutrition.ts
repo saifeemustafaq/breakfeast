@@ -135,13 +135,20 @@ export type RecipeNutrition = {
   confidence: "good" | "fair";
 };
 
-const cache = new Map<number, RecipeNutrition>();
+const cache = new Map<number | string, RecipeNutrition>();
+
+const cacheKey = (recipe: Recipe) => recipe.variant?.key ?? recipe.id;
+
+/** Grams of one ingredient in a serving of this recipe or version. */
+export const portionGrams = (recipe: Recipe, id: string) =>
+  (recipe.variant?.portions ?? PORTION_GRAMS[recipe.id])?.[id];
 
 export function recipeNutrition(recipe: Recipe): RecipeNutrition {
-  const hit = cache.get(recipe.id);
+  const hit = cache.get(cacheKey(recipe));
   if (hit) return hit;
 
-  const portions = PORTION_GRAMS[recipe.id] ?? {};
+  const portions = recipe.variant?.portions ?? PORTION_GRAMS[recipe.id] ?? {};
+  const uncounted = new Set(recipe.variant?.uncounted ?? []);
   const totals = Object.fromEntries(NUTRIENT_KEYS.map((k) => [k, 0])) as Record<NutrientKey, number>;
   const contributions = Object.fromEntries(
     NUTRIENT_KEYS.map((k) => [k, [] as Contribution[]]),
@@ -171,8 +178,14 @@ export function recipeNutrition(recipe: Recipe): RecipeNutrition {
   const caveats = recipe.ingredients
     .filter((ri) => INGREDIENT_CAVEATS[ri.id])
     .map((ri) => ({ id: ri.id, text: INGREDIENT_CAVEATS[ri.id].text }));
+  if (uncounted.size) {
+    caveats.push({
+      id: "uncounted",
+      text: `${uncounted.size === 1 ? "1 item you added isn't" : `${uncounted.size} items you added aren't`} counted: there's no nutrition data for items you add to the pantry yourself.`,
+    });
+  }
   const variableQty = recipe.ingredients
-    .filter((ri) => !NO_NUTRIENTS.has(ri.id) && VARIABLE_QTY.test(ri.qty))
+    .filter((ri) => !NO_NUTRIENTS.has(ri.id) && !uncounted.has(ri.id) && VARIABLE_QTY.test(ri.qty))
     .map((ri) => ri.id);
   const confidence = recipe.ingredients.some((ri) => INGREDIENT_CAVEATS[ri.id]?.major)
     ? "fair"
@@ -187,7 +200,7 @@ export function recipeNutrition(recipe: Recipe): RecipeNutrition {
     variableQty,
     confidence,
   };
-  cache.set(recipe.id, result);
+  cache.set(cacheKey(recipe), result);
   return result;
 }
 
@@ -360,7 +373,7 @@ const RULES: Rule[] = [
   },
   {
     id: "oats",
-    when: ({ n, recipe }) => has(recipe, "rolled-oats") && (PORTION_GRAMS[recipe.id]?.["rolled-oats"] ?? 0) >= 27 && n.totals.fiber > 0,
+    when: ({ n, recipe }) => has(recipe, "rolled-oats") && (portionGrams(recipe, "rolled-oats") ?? 0) >= 27 && n.totals.fiber > 0,
     score: () => 90,
     build: () => ({
       title: "Oats for cholesterol",
@@ -514,11 +527,11 @@ const RULES: Rule[] = [
   },
 ];
 
-const insightCache = new Map<number, Insight[]>();
+const insightCache = new Map<number | string, Insight[]>();
 
 /** Evidence-backed reasons this breakfast is worth eating, strongest first. */
 export function recipeInsights(recipe: Recipe): Insight[] {
-  const hit = insightCache.get(recipe.id);
+  const hit = insightCache.get(cacheKey(recipe));
   if (hit) return hit;
   const n = recipeNutrition(recipe);
   const ctx: Ctx = {
@@ -530,17 +543,20 @@ export function recipeInsights(recipe: Recipe): Insight[] {
   const list = RULES.filter((r) => r.when(ctx))
     .map((r) => ({ id: r.id, score: r.score(ctx), ...r.build(ctx) }))
     .sort((a, b) => b.score - a.score);
-  insightCache.set(recipe.id, list);
+  insightCache.set(cacheKey(recipe), list);
   return list;
 }
 
-/** Average nutrition across a set of breakfasts (for history summaries). */
-export function averageNutrition(recipeIds: number[]) {
+/**
+ * Average nutrition across a set of breakfasts (for history summaries). Pass recipe ids
+ * for originals, or the recipes actually eaten (see mealRecipe in lib/versions.ts).
+ */
+export function averageNutrition(meals: (number | Recipe)[]) {
   const byId = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
   const totals = Object.fromEntries(NUTRIENT_KEYS.map((k) => [k, 0])) as Record<NutrientKey, number>;
-  const valid = recipeIds.filter((id) => byId[id]);
-  for (const id of valid) {
-    const n = recipeNutrition(byId[id]);
+  const valid = meals.map((m) => (typeof m === "number" ? byId[m] : m)).filter(Boolean);
+  for (const recipe of valid) {
+    const n = recipeNutrition(recipe);
     for (const k of NUTRIENT_KEYS) totals[k] += n.totals[k];
   }
   if (valid.length) for (const k of NUTRIENT_KEYS) totals[k] /= valid.length;

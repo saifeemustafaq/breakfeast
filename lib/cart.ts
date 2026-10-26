@@ -37,7 +37,7 @@ export function cartUnlocks(
     let blocked = false;
     for (const id of checkableIds(recipe)) {
       if (inStock(id)) continue;
-      const batch = INGREDIENTS[id].batch;
+      const batch = INGREDIENTS[id]?.batch;
       if (inCart(id, "buy")) shop.push(id);
       else if (batch && inCart(id, "cook") && (inStock(batch.from) || inCart(batch.from, "buy"))) {
         cook.push(id);
@@ -68,7 +68,7 @@ export function idsToRemoveFor(recipeId: number, unlocks: CartUnlocks, items: Ca
 
   const inCart = (id: string) => items.some((i) => i.ingredientId === id);
   const bases = target.cook.flatMap((id) => {
-    const from = INGREDIENTS[id].batch?.from;
+    const from = INGREDIENTS[id]?.batch?.from;
     return from && inCart(from) ? [from] : [];
   });
   const mine = [...new Set([...target.shop, ...target.cook, ...bases])];
@@ -78,7 +78,7 @@ export function idsToRemoveFor(recipeId: number, unlocks: CartUnlocks, items: Ca
     if (other.id === recipeId) continue;
     for (const id of [...other.shop, ...other.cook]) {
       neededElsewhere.add(id);
-      const from = INGREDIENTS[id].batch?.from;
+      const from = INGREDIENTS[id]?.batch?.from;
       if (from) neededElsewhere.add(from);
     }
   }
