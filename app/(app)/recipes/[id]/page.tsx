@@ -3,20 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BanIcon, MoonIcon, Share2Icon, SunIcon } from "lucide-react";
 import { BackButton } from "@/components/navigation";
-import { InsightList, NutritionPanel } from "@/components/nutrition";
 import { PageSkeleton } from "@/components/page-skeleton";
-import { PrepDetails } from "@/components/prep-details";
+import { RecipeBody } from "@/components/recipe-body";
 import { RecipeHeader } from "@/components/recipe-header";
 import { RecipeNoteCard } from "@/components/recipe-note";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { buttonVariants } from "@/components/ui/button";
 import { getAppState, getHistory } from "@/lib/data";
-import { INGREDIENTS, RECIPE_BY_ID, RECIPES, dislikedIn, prepKinds, type Recipe } from "@/lib/recipes";
+import { INGREDIENTS, RECIPE_BY_ID, RECIPES, dislikedIn, type Recipe } from "@/lib/recipes";
 import type { AppState, HistoryEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -37,7 +30,6 @@ async function RecipeDetail({ params }: { params: PageProps<"/recipes/[id]">["pa
   const { id } = await params;
   const recipe = /^\d+$/.test(id) ? RECIPE_BY_ID[Number(id)] : undefined;
   if (!recipe) notFound();
-  const prepped = prepKinds(recipe).some((k) => k !== "none");
 
   return (
     <article className="flex flex-col gap-6">
@@ -70,64 +62,17 @@ async function RecipeDetail({ params }: { params: PageProps<"/recipes/[id]">["pa
         <Personal recipe={recipe} />
       </Suspense>
 
-      <Accordion defaultValue={["ingredients", "steps"]}>
-        {prepped && (
-          <AccordionItem value="prep">
-            <AccordionTrigger className="text-base">Advance prep</AccordionTrigger>
-            <AccordionContent>
-              <Suspense fallback={<PrepDetails recipe={recipe} />}>
-                <Prep recipe={recipe} />
-              </Suspense>
-            </AccordionContent>
-          </AccordionItem>
-        )}
-
-        <AccordionItem value="ingredients">
-          <AccordionTrigger className="text-base">Ingredients</AccordionTrigger>
-          <AccordionContent>
-            <Ingredients recipe={recipe} />
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="steps">
-          <AccordionTrigger className="text-base">
-            {recipe.prep === "overnight" ? "In the morning" : "Steps"}
-          </AccordionTrigger>
-          <AccordionContent>
-            <ol className="flex flex-col gap-2.5">
-              {recipe.steps.map((s, i) => (
-                <li key={i} className="flex gap-3 text-sm leading-relaxed">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                    {i + 1}
-                  </span>
-                  {s}
-                </li>
-              ))}
-            </ol>
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="insights">
-          <AccordionTrigger className="text-base">What it does for you</AccordionTrigger>
-          <AccordionContent>
-            <InsightList recipe={recipe} />
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="nutrition">
-          <AccordionTrigger className="text-base">Nutrition per serving</AccordionTrigger>
-          <AccordionContent>
-            <NutritionPanel recipe={recipe} />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+      <Suspense fallback={<RecipeBody recipe={recipe} />}>
+        <Versioned recipe={recipe} />
+      </Suspense>
     </article>
   );
 }
 
-async function Prep({ recipe }: { recipe: Recipe }) {
-  const state = await getAppState();
-  return <PrepDetails recipe={recipe} stock={state.stock} loadedAt={state.loadedAt} />;
+/** Your versions, last pick and pantry, so the body can show the version you'd make. */
+async function Versioned({ recipe }: { recipe: Recipe }) {
+  const { versions, choices, disliked, custom, stock, loadedAt } = await getAppState();
+  return <RecipeBody recipe={recipe} state={{ versions, choices, disliked, custom, stock, loadedAt }} />;
 }
 
 /** Your own history with this breakfast, the household's note, and a warning if it's on your dislike list. */
@@ -160,27 +105,6 @@ async function Personal({ recipe }: { recipe: Recipe }) {
 
 function Placeholder({ className }: { className?: string }) {
   return <div className={cn("animate-pulse rounded-xl bg-muted", className)} />;
-}
-
-function Ingredients({ recipe }: { recipe: Recipe }) {
-  const overnight = recipe.prep === "overnight";
-  return (
-    <ul className="flex flex-col divide-y rounded-xl border bg-card text-sm">
-      {recipe.ingredients.map((ri) => (
-        <li key={ri.id} className="flex items-baseline justify-between gap-3 p-3">
-          <span>
-            {INGREDIENTS[ri.id].name}
-            {overnight && (
-              <span className="ml-2 text-xs text-muted-foreground">
-                {(ri.when ?? "morning") === "night" ? "night before" : "morning"}
-              </span>
-            )}
-          </span>
-          <span className="text-right font-medium tabular-nums">{ri.qty}</span>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 const DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });

@@ -1,8 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BanIcon, ChartNoAxesColumnIcon, ChevronRightIcon, HeartIcon, ThumbsDownIcon } from "lucide-react";
+import {
+  BanIcon,
+  ChartNoAxesColumnIcon,
+  ChevronRightIcon,
+  HeartIcon,
+  ThumbsDownIcon,
+  UserIcon,
+  UsersIcon,
+} from "lucide-react";
 import { NutritionLine } from "@/components/nutrition";
 import { RecipeBadges } from "@/components/recipe-header";
 import { SearchField } from "@/components/search-field";
@@ -16,11 +24,14 @@ import {
   preferenceScore,
   prepKinds,
   visibleRecipes,
+  type Ingredient,
   type Recipe,
 } from "@/lib/recipes";
+import { ingredientsWith } from "@/lib/ingredients";
 import { matchesQuery, recipeSearchText } from "@/lib/search";
 import type { AppState } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { resolveRecipe } from "@/lib/versions";
 
 type Filter = { id: string; label: string; test: (r: Recipe, s: AppState) => boolean };
 
@@ -37,12 +48,14 @@ const FILTERS: Filter[] = [
     label: "Favorites",
     test: (r, s) => (preferenceScore(s.stats[r.id]) ?? 0) >= 4,
   },
+  { id: "versions", label: "Your versions", test: (r, s) => !!s.versions.mine[r.id] },
 ];
 
 export function RecipeLibrary({ state }: { state: AppState }) {
   const [filter, setFilter] = useState("all");
   const [showHidden, setShowHidden] = useState(false);
   const [query, setQuery] = useState("");
+  const ingredients = useMemo(() => ingredientsWith(state.custom), [state.custom]);
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
   const visible = visibleRecipes(state.disliked);
   const hiddenCount = RECIPES.length - visible.length;
@@ -118,7 +131,7 @@ export function RecipeLibrary({ state }: { state: AppState }) {
       ) : (
         <ul className="flex flex-col gap-3">
           {shown.map((r) => (
-            <RecipeCard key={r.id} recipe={r} state={state} />
+            <RecipeCard key={r.id} recipe={r} state={state} ingredients={ingredients} />
           ))}
         </ul>
       )}
@@ -132,7 +145,17 @@ export function RecipeLibrary({ state }: { state: AppState }) {
   );
 }
 
-function RecipeCard({ recipe, state }: { recipe: Recipe; state: AppState }) {
+function RecipeCard({
+  recipe: original,
+  state,
+  ingredients,
+}: {
+  recipe: Recipe;
+  state: AppState;
+  ingredients: Record<string, Ingredient>;
+}) {
+  const resolved = resolveRecipe(state, original.id, ingredients);
+  const recipe = resolved?.recipe ?? original;
   const stats = state.stats[recipe.id];
   const score = preferenceScore(stats);
   const disliked = isDisliked(stats);
@@ -164,6 +187,16 @@ function RecipeCard({ recipe, state }: { recipe: Recipe; state: AppState }) {
         )}
       </div>
       <p className="text-sm text-muted-foreground">{recipe.blurb}</p>
+      {resolved?.version && (
+        <p className="flex items-center gap-1.5 text-xs font-medium text-primary">
+          {resolved.choice === "mine" ? <UserIcon className="size-3.5" /> : <UsersIcon className="size-3.5" />}
+          {resolved.label}: +{" "}
+          {recipe.ingredients
+            .filter((ri) => ri.added)
+            .map((ri) => (ingredients[ri.id]?.name ?? ri.id).toLowerCase())
+            .join(", ")}
+        </p>
+      )}
       {offList.length > 0 && (
         <p className="flex items-center gap-1.5 text-xs text-warning">
           <BanIcon className="size-3.5 shrink-0" />

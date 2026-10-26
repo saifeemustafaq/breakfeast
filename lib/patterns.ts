@@ -1,4 +1,5 @@
 import { averageNutrition, recipeNutrition } from "./nutrition";
+import { mealRecipe } from "./versions";
 import {
   RECIPE_BY_ID,
   RECIPE_TRAITS,
@@ -97,7 +98,7 @@ export function analyzePatterns(
         .filter((c): c is GroupComparison => c !== null)
     : [];
 
-  const nutrientOf = (m: RatedMeal) => recipeNutrition(RECIPE_BY_ID[m.recipeId]).totals;
+  const nutrientOf = (m: RatedMeal) => recipeNutrition(mealRecipe(m) ?? RECIPE_BY_ID[m.recipeId]).totals;
   const feel = enoughData
     ? [
         compareGroups(
@@ -125,7 +126,7 @@ export function analyzePatterns(
     avoid,
     traits,
     feel,
-    recent: averageNutrition(history.slice(0, 7).map((h) => h.recipeId)),
+    recent: averageNutrition(history.slice(0, 7).flatMap((h) => mealRecipe(h) ?? [])),
     enoughData,
   };
 }

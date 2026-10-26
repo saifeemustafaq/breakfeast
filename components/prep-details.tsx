@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { INGREDIENTS, cookedAheadItems, prepKinds, recipeItems, type Recipe } from "@/lib/recipes";
+import { INGREDIENTS, cookedAheadItems, prepKinds, recipeItems, type Ingredient, type Recipe } from "@/lib/recipes";
 import { rememberedInStock } from "@/lib/stock";
 import { DAY } from "@/lib/time";
 import type { CheckStatus, StockEntry } from "@/lib/types";
@@ -28,6 +28,8 @@ export type PrepFocus = "overnight" | "cookedAhead";
 export type PrepContext = "now" | "tonight" | "browse";
 
 type StockProps = { stock?: Record<string, StockEntry>; loadedAt?: number };
+/** Names for a personal version's own items, on top of the catalog. */
+type NameProps = { ingredients?: Record<string, Ingredient> };
 
 
 function batchState(id: string, { stock, loadedAt }: StockProps) {
@@ -182,7 +184,8 @@ export function PrepDetails({
   focus,
   stock,
   loadedAt,
-}: { recipe: Recipe; focus?: PrepFocus } & StockProps) {
+  ingredients = INGREDIENTS,
+}: { recipe: Recipe; focus?: PrepFocus } & StockProps & NameProps) {
   const kinds = prepKinds(recipe).filter((k) => k !== "none");
   const ordered = focus ? [focus, ...kinds.filter((k) => k !== focus)] : kinds;
   if (!ordered.length) {
@@ -197,7 +200,7 @@ export function PrepDetails({
     <div className="flex flex-col gap-5">
       {ordered.map((kind) =>
         kind === "overnight" ? (
-          <OvernightDetails key={kind} recipe={recipe} />
+          <OvernightDetails key={kind} recipe={recipe} ingredients={ingredients} />
         ) : (
           <CookedAheadDetails key={kind} recipe={recipe} stock={stock} loadedAt={loadedAt} />
         ),
@@ -206,7 +209,7 @@ export function PrepDetails({
   );
 }
 
-function OvernightDetails({ recipe }: { recipe: Recipe }) {
+function OvernightDetails({ recipe, ingredients }: { recipe: Recipe; ingredients: Record<string, Ingredient> }) {
   const night = recipeItems(recipe, "night");
   const morning = recipeItems(recipe, "morning");
   return (
@@ -218,7 +221,7 @@ function OvernightDetails({ recipe }: { recipe: Recipe }) {
       <ul className="flex flex-col divide-y rounded-xl border bg-card text-sm">
         {night.map((ri) => (
           <li key={ri.id} className="flex justify-between gap-3 p-2.5">
-            <span>{INGREDIENTS[ri.id].name}</span>
+            <span>{ingredients[ri.id]?.name ?? ri.id}</span>
             <span className="text-right font-medium tabular-nums">{ri.qty}</span>
           </li>
         ))}
@@ -237,7 +240,7 @@ function OvernightDetails({ recipe }: { recipe: Recipe }) {
         <p className="flex items-start gap-2 text-sm text-muted-foreground">
           <SunIcon className="mt-0.5 size-4 shrink-0" />
           In the morning ({recipe.minutes} min): add{" "}
-          {morning.map((ri) => INGREDIENTS[ri.id].name.toLowerCase()).join(", ")}.
+          {morning.map((ri) => (ingredients[ri.id]?.name ?? ri.id).toLowerCase()).join(", ")}.
         </p>
       )}
     </section>
@@ -290,13 +293,14 @@ export function PrepDialog({
   stock,
   loadedAt,
   actions,
+  ingredients,
 }: {
   recipe: Recipe;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   focus?: PrepFocus;
   actions?: React.ReactNode;
-} & StockProps) {
+} & StockProps & NameProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -304,7 +308,7 @@ export function PrepDialog({
           <DialogTitle>{focus === "cookedAhead" ? "What to cook ahead" : "What prep it needs"}</DialogTitle>
           <DialogDescription>{recipe.name}</DialogDescription>
         </DialogHeader>
-        <PrepDetails recipe={recipe} focus={focus} stock={stock} loadedAt={loadedAt} />
+        <PrepDetails recipe={recipe} focus={focus} stock={stock} loadedAt={loadedAt} ingredients={ingredients} />
         {actions && <DialogFooter>{actions}</DialogFooter>}
       </DialogContent>
     </Dialog>

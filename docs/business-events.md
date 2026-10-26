@@ -21,9 +21,9 @@ A business event is a `workflow` row in `activity_events` that says what a perso
 |---|---|---|---|
 | `check.recorded` | `check.record_failed` | `recordCheck` | `have` and `missing` (counts), `recipeIds` |
 | `plan.checked` | `plan.check_failed` | `recordPlanCheck` | `have`, `missing`, and `recipeIds` (counts) |
-| `plan.set` | `plan.set_failed` | `planTomorrow` | `recipeId`, `needsPrep` |
+| `plan.set` | `plan.set_failed` | `planTomorrow` | `recipeId`, `needsPrep`, `version` (original, mine, shared or planned), `skipped` and `extras` (counts) |
 | `plan.cleared` | `plan.clear_failed` | `clearTomorrow` | none |
-| `breakfast.made` | `breakfast.mark_failed` | `markMade` | `recipeId` |
+| `breakfast.made` | `breakfast.mark_failed` | `markMade` | `recipeId`, `version` (original, mine, shared or planned), `skipped` and `extras` (counts) |
 | `breakfast.rated` | `breakfast.rate_failed` | `rateBreakfast` | `taste`, `feel`, `again`, `hasNote` |
 | `stock.set` | `stock.set_failed` | `setStock` | `ingredientId`, `inStock` |
 | `cart.added` | `cart.add_failed` | `addToCart`, `addManyToCart` | `ingredientIds`, `recipeIds` |
@@ -37,9 +37,14 @@ A business event is a `workflow` row in `activity_events` that says what a perso
 | `household.declined` | `household.decline_failed` | `respondToInvite(id, false)` | none |
 | `household.invite_cancelled` | `household.cancel_failed` | `cancelInvite` | none |
 | `household.left` | `household.leave_failed` | `leaveHousehold` | none |
-| `breakfast.logged` | `breakfast.log_failed` | `logBreakfast` ("I made this recently") | `recipeId`, `daysAgo`, `rated` |
+| `breakfast.logged` | `breakfast.log_failed` | `logBreakfast` ("I made this recently") | `recipeId`, `daysAgo`, `rated`, `version` |
 | `recipe.note_saved` | `recipe.note_save_failed` | `saveRecipeNote` (an empty note deletes it) | `recipeId` (the text is not logged) |
 | `recipe.note_deleted` | `recipe.note_delete_failed` | `deleteRecipeNote` | `recipeId` |
+| `recipe.version_saved` | `recipe.version_save_failed` | `saveVersion` (no additions resets it) | `recipeId`, `count` (additions; the items are not logged) |
+| `recipe.version_reset` | `recipe.version_reset_failed` | `resetVersion` | `recipeId` |
+| `recipe.version_shared` | `recipe.version_share_failed` | `setVersionShared` | `recipeId`, `shared` |
+| `recipe.version_copied` | `recipe.version_copy_failed` | `copySharedVersion` | `recipeId` (whose version is not logged) |
+| `recipe.version_chosen` | `recipe.version_choose_failed` | `chooseVersion` (the switch on the recipe page and Today) | `recipeId`, `version` (original, mine or shared) |
 | `preferences.disliked_set` | `preferences.disliked_set_failed` | `setDisliked` | `count` (the ingredients are not logged) |
 | `list.copied` | | `CartView` (client) | `items` (count) |
 | `export.created` | | `ExportView` (client) | `preset`, `format`, `delivery` (share, download, copy or print), `rows` (count). The content is not logged |

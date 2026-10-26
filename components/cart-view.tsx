@@ -29,7 +29,8 @@ import {
 import { failureMessage, unwrap, type ActionResult } from "@/lib/action-result";
 import { cartUnlocks, idsToRemoveFor, type CartUnlocks } from "@/lib/cart";
 import { ingredientsWith } from "@/lib/ingredients";
-import { ALL_INGREDIENTS, AISLE_ORDER, INGREDIENTS, RECIPE_BY_ID, visibleRecipes } from "@/lib/recipes";
+import { resolveRecipe } from "@/lib/versions";
+import { ALL_INGREDIENTS, AISLE_ORDER, INGREDIENTS, RECIPE_BY_ID, visibleRecipes, type Ingredient } from "@/lib/recipes";
 import { rememberedInStock } from "@/lib/stock";
 import type { AddedIngredient, AppState, CartItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,7 +48,11 @@ export function CartView({ initial }: { initial: AppState }) {
     bought.includes(id) || rememberedInStock(id, initial.stock, initial.loadedAt);
   const buy = items.filter((i) => i.kind === "buy");
   const cook = items.filter((i) => i.kind === "cook");
-  const unlocks = cartUnlocks(items, inStock, visibleRecipes(initial.disliked));
+  const unlocks = cartUnlocks(
+    items,
+    inStock,
+    visibleRecipes(initial.disliked).map((r) => resolveRecipe(initial, r.id, ings)?.recipe ?? r),
+  );
 
   function run(
     optimistic: CartItem[],
@@ -195,7 +200,7 @@ export function CartView({ initial }: { initial: AppState }) {
         </div>
       </div>
 
-      <AfterShopping unlocks={unlocks} onDrop={setDropping} />
+      <AfterShopping unlocks={unlocks} onDrop={setDropping} ings={ings} />
 
       {AISLE_ORDER.filter((a) => a !== "Cooked ahead").map((aisle) => {
         const group = buy.filter((i) => ings[i.ingredientId].aisle === aisle);
@@ -305,6 +310,7 @@ export function CartView({ initial }: { initial: AppState }) {
           {dropping !== null && (
             <DropBreakfast
               recipeId={dropping}
+              ings={ings}
               removal={idsToRemoveFor(dropping, unlocks, items)}
               onConfirm={() => dropBreakfast(dropping)}
               onCancel={() => setDropping(null)}
@@ -322,13 +328,15 @@ function DropBreakfast({
   removal,
   onConfirm,
   onCancel,
+  ings,
 }: {
+  ings: Record<string, Ingredient>;
   recipeId: number;
   removal: { remove: string[]; kept: string[] };
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const names = (ids: string[]) => ids.map((id) => INGREDIENTS[id].name.toLowerCase()).join(", ");
+  const names = (ids: string[]) => ids.map((id) => (ings[id]?.name ?? id).toLowerCase()).join(", ");
   return (
     <>
       <DialogHeader>
@@ -357,7 +365,9 @@ function DropBreakfast({
 function AfterShopping({
   unlocks,
   onDrop,
+  ings,
 }: {
+  ings: Record<string, Ingredient>;
   unlocks: CartUnlocks;
   onDrop: (recipeId: number) => void;
 }) {
@@ -398,10 +408,10 @@ function AfterShopping({
                     <p className="text-xs text-muted-foreground">
                       {[
                         shop.length
-                          ? `Needs ${shop.map((i) => INGREDIENTS[i].name.toLowerCase()).join(", ")}`
+                          ? `Needs ${shop.map((i) => (ings[i]?.name ?? i).toLowerCase()).join(", ")}`
                           : null,
                         cook.length
-                          ? `then batch-cook ${cook.map((i) => INGREDIENTS[i].name.toLowerCase().replace(/^cooked /, "")).join(", ")}`
+                          ? `then batch-cook ${cook.map((i) => (ings[i]?.name ?? i).toLowerCase().replace(/^cooked /, "")).join(", ")}`
                           : null,
                       ]
                         .filter(Boolean)

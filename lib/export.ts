@@ -10,12 +10,14 @@ import {
   preferenceScore,
   prepKinds,
   visibleRecipes,
+  type Ingredient,
   type PrepKind,
   type Recipe,
 } from "./recipes";
 import { rememberedInStock } from "./stock";
 import { DAY } from "./time";
 import type { AppState, HistoryEntry } from "./types";
+import { mealRecipe, namesWith, recipeFromSnapshot, resolveRecipe } from "./versions";
 
 // ---------------------------------------------------------------------------
 // Model
@@ -81,11 +83,23 @@ export const PRESET_BY_ID = Object.fromEntries(PRESETS.map((p) => [p.id, p])) as
 
 export type RangeKind = "7" | "30" | "90" | "all" | "custom";
 
-export type DiaryColumn = "date" | "breakfast" | "prep" | "taste" | "feel" | "again" | "note" | "kcal" | "protein" | "fiber";
+export type DiaryColumn =
+  | "date"
+  | "breakfast"
+  | "changes"
+  | "prep"
+  | "taste"
+  | "feel"
+  | "again"
+  | "note"
+  | "kcal"
+  | "protein"
+  | "fiber";
 
 export const DIARY_COLUMNS: { id: DiaryColumn; label: string }[] = [
   { id: "date", label: "Date" },
   { id: "breakfast", label: "Breakfast" },
+  { id: "changes", label: "Added or skipped" },
   { id: "prep", label: "Prep" },
   { id: "taste", label: "Taste" },
   { id: "feel", label: "Felt afterward" },
@@ -140,7 +154,7 @@ export function defaultOptions(state: AppState, now: number): ExportOptions {
     forWhich: false,
     pantryShow: "all",
     lastChecked: false,
-    diaryColumns: ["date", "breakfast", "taste", "feel", "again", "kcal", "protein"],
+    diaryColumns: ["date", "breakfast", "changes", "taste", "feel", "again", "kcal", "protein"],
     perDay: false,
     withDiary: false,
     recipeIds: state.upcoming ? [state.upcoming.recipeId] : [],
@@ -323,14 +337,29 @@ function pantry({ state, now }: ExportData, o: ExportOptions): Doc {
   };
 }
 
-function diaryValue(h: HistoryEntry, col: DiaryColumn, raw: boolean): string {
-  const r = RECIPE_BY_ID[h.recipeId];
+/** "+ chia seeds, walnuts; + honey (just this time); skipped yogurt" for a breakfast that wasn't the plain original. */
+function changesText(h: HistoryEntry, ings: Record<string, Ingredient>) {
+  const names = namesWith(ings, h.version, h.extras);
+  const name = (id: string) => (names[id]?.name ?? id).toLowerCase();
+  return [
+    h.version?.additions.length ? `+ ${h.version.additions.map((a) => name(a.ingredientId)).join(", ")}` : "",
+    h.extras?.length ? `+ ${h.extras.map((a) => name(a.ingredientId)).join(", ")} (just this time)` : "",
+    h.skipped?.length ? `skipped ${h.skipped.map(name).join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function diaryValue(h: HistoryEntry, col: DiaryColumn, raw: boolean, ings: Record<string, Ingredient> = INGREDIENTS): string {
+  const r = mealRecipe(h);
   const at = new Date(h.madeAt);
   switch (col) {
     case "date":
       return raw ? `${ymd(at)} ${time24(at)}` : LONG.format(at);
     case "breakfast":
       return recipeName(h.recipeId);
+    case "changes":
+      return changesText(h, ings);
     case "prep":
       return r ? prepLabel(r) : "";
     case "taste":
@@ -347,7 +376,8 @@ function diaryValue(h: HistoryEntry, col: DiaryColumn, raw: boolean): string {
   }
 }
 
-function diary({ history, now }: ExportData, o: ExportOptions): Doc {
+function diary({ state, history, now }: ExportData, o: ExportOptions): Doc {
+  const ings = ingredientsWith(state.custom);
   const entries = history.filter((h) => inRange(h, o, now));
   const cols = o.diaryColumns.filter((c) => c !== "note" || o.notes);
   const labels = cols.map((c) => DIARY_COLUMNS.find((d) => d.id === c)!.label);
@@ -365,34 +395,40 @@ function diary({ history, now }: ExportData, o: ExportOptions): Doc {
     });
   }
   if (!entries.length) blocks.push({ kind: "text", text: "No breakfasts in this period.", muted: true });
-  else blocks.push({ kind: "table", columns: labels, rows: entries.map((h) => cols.map((c) => diaryValue(h, c, false))) });
+  else blocks.push({ kind: "table", columns: labels, rows: entries.map((h) => cols.map((c) => diaryValue(h, c, false, ings))) });
 
   return {
     title: "Breakfast diary",
     blocks,
     count: entries.length,
     countLabel: "breakfasts",
-    csv: { columns: labels, rows: entries.map((h) => cols.map((c) => diaryValue(h, c, true))) },
+    csv: { columns: labels, rows: entries.map((h) => cols.map((c) => diaryValue(h, c, true, ings))) },
   };
 }
 
 function nutritionTotals(entries: HistoryEntry[], perDay: boolean) {
-  if (!perDay) return { ...averageNutrition(entries.map((h) => h.recipeId)), days: 0 };
-  const byDay = new Map<string, number[]>();
+  if (!perDay) return { ...averageNutrition(entries.flatMap((h) => mealRecipe(h) ?? [])), days: 0 };
+  const byDay = new Map<string, Recipe[]>();
   for (const h of entries) {
-    if (!RECIPE_BY_ID[h.recipeId]) continue;
+    const meal = mealRecipe(h);
+    if (!meal) continue;
     const day = ymd(new Date(h.madeAt));
-    byDay.set(day, [...(byDay.get(day) ?? []), h.recipeId]);
+    byDay.set(day, [...(byDay.get(day) ?? []), meal]);
   }
   const totals = Object.fromEntries(NUTRIENT_KEYS.map((k) => [k, 0])) as Record<NutrientKey, number>;
-  for (const ids of byDay.values()) {
-    for (const id of ids) {
-      const n = recipeNutrition(RECIPE_BY_ID[id]).totals;
+  for (const meals of byDay.values()) {
+    for (const meal of meals) {
+      const n = recipeNutrition(meal).totals;
       for (const k of NUTRIENT_KEYS) totals[k] += n[k];
     }
   }
   if (byDay.size) for (const k of NUTRIENT_KEYS) totals[k] /= byDay.size;
   return { count: [...byDay.values()].flat().length, totals, days: byDay.size };
+}
+
+function mealProtein(h: HistoryEntry) {
+  const meal = mealRecipe(h);
+  return meal ? formatAmount("protein", recipeNutrition(meal).totals.protein) : "";
 }
 
 const amountText = (k: NutrientKey, amount: number) =>
@@ -449,7 +485,7 @@ function nutrition({ history, now }: ExportData, o: ExportOptions): Doc {
           diaryValue(h, "date", false),
           recipeName(h.recipeId),
           diaryValue(h, "kcal", false),
-          RECIPE_BY_ID[h.recipeId] ? formatAmount("protein", recipeNutrition(RECIPE_BY_ID[h.recipeId]).totals.protein) : "",
+          mealProtein(h),
         ]),
       },
     );
@@ -498,7 +534,14 @@ function patterns({ state, history, now }: ExportData, o: ExportOptions): Doc {
   return { title: "Your patterns", blocks, count: p.ratedMeals, countLabel: "rated breakfasts" };
 }
 
-function recipeBlocks(r: Recipe, withNutrition: boolean, asTitle = false, note?: string): Block[] {
+function recipeBlocks(
+  r: Recipe,
+  withNutrition: boolean,
+  asTitle = false,
+  note?: string,
+  ings: Record<string, Ingredient> = INGREDIENTS,
+  versionLabel?: string,
+): Block[] {
   const blocks: Block[] = [
     asTitle
       ? { kind: "title", text: r.name, sub: `Breakfast #${r.id} from Breakfeast` }
@@ -507,13 +550,17 @@ function recipeBlocks(r: Recipe, withNutrition: boolean, asTitle = false, note?:
     { kind: "text", text: `${r.minutes} min in the morning · ${prepLabel(r)}`, muted: true },
   ];
   if (r.tip) blocks.push({ kind: "text", text: `Tip: ${r.tip}`, muted: true });
+  if (versionLabel) {
+    const added = r.ingredients.filter((ri) => ri.added).map((ri) => (ings[ri.id]?.name ?? ri.id).toLowerCase());
+    blocks.push({ kind: "text", text: `${versionLabel}: the original plus ${added.join(", ")}.` });
+  }
   if (note) blocks.push({ kind: "text", text: `Our note: ${note}` });
   blocks.push(
     { kind: "subheading", text: "Ingredients" },
     {
       kind: "list",
       items: r.ingredients.map(
-        (ri) => `${INGREDIENTS[ri.id]?.name ?? ri.id}: ${ri.qty}${ri.when === "night" ? " (the night before)" : ""}`,
+        (ri) => `${ings[ri.id]?.name ?? ri.id}: ${ri.qty}${ri.when === "night" ? " (the night before)" : ""}`,
       ),
     },
   );
@@ -544,15 +591,18 @@ function recipeBlocks(r: Recipe, withNutrition: boolean, asTitle = false, note?:
   return blocks;
 }
 
+/** Each recipe in the version you'd make it (your last pick, else your version, else the original). */
 function recipes({ state }: ExportData, o: ExportOptions): Doc {
-  const list = o.recipeIds.map((id) => RECIPE_BY_ID[id]).filter(Boolean);
+  const ings = ingredientsWith(state.custom);
+  const list = o.recipeIds.flatMap((id) => resolveRecipe(state, id, ings) ?? []);
   const single = list.length === 1;
-  const title = single ? list[0].name : "Recipe book";
+  const title = single ? list[0].recipe.name : "Recipe book";
   const blocks: Block[] = single ? [] : [{ kind: "title", text: title, sub: `${list.length} breakfasts from Breakfeast` }];
   if (!list.length) blocks.push({ kind: "text", text: "Pick at least one recipe.", muted: true });
-  list.forEach((r, i) => {
+  list.forEach(({ recipe: r, version, label }, i) => {
     if (i > 0) blocks.push({ kind: "break" });
-    blocks.push(...recipeBlocks(r, o.recipeNutrition, single, o.notes ? state.notes[r.id]?.text : undefined));
+    const note = o.notes ? state.notes[r.id]?.text : undefined;
+    blocks.push(...recipeBlocks(r, o.recipeNutrition, single, note, ings, version && r.variant ? label : undefined));
   });
   return { title, blocks, count: list.length, countLabel: list.length === 1 ? "recipe" : "recipes" };
 }
@@ -578,9 +628,11 @@ function allergy({ state, now }: ExportData, o: ExportOptions): Doc {
       { kind: "list", items: visibleRecipes(state.disliked).map((r) => r.name) },
     );
   }
-  const upcoming = state.upcoming && RECIPE_BY_ID[state.upcoming.recipeId];
+  const upcoming =
+    state.upcoming && recipeFromSnapshot(state.upcoming.recipeId, state.upcoming.version, [], state.upcoming.extras);
   if (o.tomorrow && upcoming) {
-    blocks.push({ kind: "break" }, { kind: "subheading", text: "Tomorrow's breakfast" }, ...recipeBlocks(upcoming, false));
+    const ings = namesWith(ingredientsWith(state.custom), state.upcoming?.version, state.upcoming?.extras);
+    blocks.push({ kind: "break" }, { kind: "subheading", text: "Tomorrow's breakfast" }, ...recipeBlocks(upcoming, false, false, undefined, ings));
   }
   return { title: "Allergy card", blocks, count: names.length, countLabel: names.length === 1 ? "item to avoid" : "items to avoid" };
 }
@@ -707,8 +759,9 @@ function at(day: Date, hhmm: string) {
   return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h || 0, m || 0);
 }
 
-function calendar({ now }: ExportData, o: ExportOptions) {
-  const list = o.calendarIds.map((id) => RECIPE_BY_ID[id]).filter(Boolean);
+function calendar({ state, now }: ExportData, o: ExportOptions) {
+  const ings = ingredientsWith(state.custom);
+  const list = o.calendarIds.flatMap((id) => resolveRecipe(state, id, ings)?.recipe ?? []);
   const stamp = icsUtc(new Date(now));
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Breakfeast//Meal plan//EN", "CALSCALE:GREGORIAN"];
   const event = (uid: string, start: Date, minutes: number, summary: string, description: string, alarm: boolean) => {
@@ -727,7 +780,7 @@ function calendar({ now }: ExportData, o: ExportOptions) {
   const first = parseYmd(o.start);
   list.forEach((r, i) => {
     const day = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i);
-    const ingredients = r.ingredients.map((ri) => `- ${INGREDIENTS[ri.id]?.name ?? ri.id}: ${ri.qty}`).join("\n");
+    const ingredients = r.ingredients.map((ri) => `- ${ings[ri.id]?.name ?? ri.id}: ${ri.qty}`).join("\n");
     const steps = r.steps.map((s, n) => `${n + 1}. ${s}`).join("\n");
     event(`${ymd(day)}-${r.id}`, at(day, o.time), Math.max(15, r.minutes), `Breakfast: ${r.name}`, `${r.blurb}\n\nIngredients\n${ingredients}\n\nSteps\n${steps}`, false);
     const cooked = cookedAheadItems(r);
@@ -760,6 +813,13 @@ function backup({ state, history, now }: ExportData, o: ExportOptions) {
     tomorrow: state.upcoming ? { ...state.upcoming, name: recipeName(state.upcoming.recipeId) } : null,
     dislikes: state.disliked.map((id) => ({ id, name: INGREDIENTS[id]?.name ?? id })),
     recipeNotes: Object.entries(state.notes).map(([id, n]) => ({ recipeId: Number(id), name: recipeName(Number(id)), ...n })),
+    yourVersions: Object.values(state.versions.mine).map((v) => ({
+      recipeId: v.recipeId,
+      name: recipeName(v.recipeId),
+      shared: v.shared,
+      updatedAt: v.updatedAt,
+      additions: v.additions.map((a) => ({ ...a, name: ings[a.ingredientId]?.name ?? a.ingredientId })),
+    })),
     history: history.map(({ note, ...h }) => ({ ...h, name: recipeName(h.recipeId), ...(o.notes && note ? { note } : {}) })),
   };
   return { content: JSON.stringify(data, null, 2) + "\n", count: history.length };

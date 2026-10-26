@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CheckIcon, CookingPotIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { INGREDIENTS, KITCHEN_SPOT, sortByKitchen } from "@/lib/recipes";
+import { INGREDIENTS, KITCHEN_SPOT, sortByKitchen, type Ingredient } from "@/lib/recipes";
 import type { CheckStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,7 @@ export function KitchenChecklist({
   missingLabel,
   pending,
   onSubmit,
+  ingredients = INGREDIENTS,
 }: {
   items: ChecklistItem[];
   initial: Record<string, CheckStatus | undefined>;
@@ -29,9 +30,11 @@ export function KitchenChecklist({
   missingLabel?: string;
   pending?: boolean;
   onSubmit: (status: Record<string, CheckStatus>) => void;
+  /** Include the household's own items when checking a personal version. */
+  ingredients?: Record<string, Ingredient>;
 }) {
   const [status, setStatus] = useState(initial);
-  const sorted = sortByKitchen(items);
+  const sorted = sortByKitchen(items, ingredients);
   const listed = new Set(sorted.map((i) => i.id));
 
   /**
@@ -40,7 +43,7 @@ export function KitchenChecklist({
    * items sharing a base only produce one question.
    */
   const baseOf = (id: string) => {
-    const from = INGREDIENTS[id].batch?.from;
+    const from = INGREDIENTS[id]?.batch?.from;
     return from && !listed.has(from) ? from : undefined;
   };
   const asks = new Map<string, string>();
@@ -88,7 +91,7 @@ export function KitchenChecklist({
     });
   }
 
-  const spots = sorted.map((i) => KITCHEN_SPOT[INGREDIENTS[i.id].aisle]);
+  const spots = sorted.map((i) => KITCHEN_SPOT[ingredients[i.id]?.aisle ?? "Pantry"]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -105,7 +108,7 @@ export function KitchenChecklist({
 
       <ul className="flex flex-col gap-2">
         {sorted.map((item, idx) => {
-          const ing = INGREDIENTS[item.id];
+          const ing = ingredients[item.id] ?? { id: item.id, name: item.id, aisle: "Pantry" as const };
           const header = spots[idx] !== spots[idx - 1] ? spots[idx] : null;
           const s = status[item.id];
           const base = bases.find((b) => asks.get(b) === item.id);

@@ -4,8 +4,8 @@ import { USDA_FOODS } from "@/lib/nutrition-data";
 import {
   MICRO_KEYS,
   NUTRIENTS,
-  PORTION_GRAMS,
   SOURCES,
+  portionGrams,
   formatAmount,
   percentDV,
   recipeInsights,
@@ -15,7 +15,7 @@ import {
   type Insight,
   type NutrientKey,
 } from "@/lib/nutrition";
-import { INGREDIENTS, type Recipe } from "@/lib/recipes";
+import { INGREDIENTS, type Ingredient, type Recipe } from "@/lib/recipes";
 import { cn } from "@/lib/utils";
 
 /** One line of headline numbers plus the standout micronutrients. */
@@ -149,7 +149,14 @@ export function InsightList({ recipe }: { recipe: Recipe }) {
 }
 
 /** The full estimated nutrition for one serving, with sources and caveats. */
-export function NutritionPanel({ recipe }: { recipe: Recipe }) {
+export function NutritionPanel({
+  recipe,
+  ingredients = INGREDIENTS,
+}: {
+  recipe: Recipe;
+  /** Include the household's own items when the recipe is a personal version. */
+  ingredients?: Record<string, Ingredient>;
+}) {
   const n = recipeNutrition(recipe);
   const micros = [...MICRO_KEYS].sort(
     (a, b) => (percentDV(b, n.totals[b]) ?? 0) - (percentDV(a, n.totals[a]) ?? 0),
@@ -187,7 +194,7 @@ export function NutritionPanel({ recipe }: { recipe: Recipe }) {
         </ul>
       </div>
 
-      <EstimateNotes recipe={recipe} />
+      <EstimateNotes recipe={recipe} ingredients={ingredients} />
     </div>
   );
 }
@@ -239,7 +246,7 @@ function NutrientBar({
   );
 }
 
-function EstimateNotes({ recipe }: { recipe: Recipe }) {
+function EstimateNotes({ recipe, ingredients }: { recipe: Recipe; ingredients: Record<string, Ingredient> }) {
   const n = recipeNutrition(recipe);
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-muted/50 p-4 text-sm">
@@ -290,13 +297,13 @@ function EstimateNotes({ recipe }: { recipe: Recipe }) {
                         className="underline-offset-2 hover:underline"
                         title={food.description}
                       >
-                        {INGREDIENTS[ri.id].name}
+                        {ingredients[ri.id]?.name}
                       </a>
                     ) : (
-                      INGREDIENTS[ri.id].name
+                      (ingredients[ri.id]?.name ?? "Your item")
                     )}
                   </td>
-                  <td className="py-1.5 text-right tabular-nums">{gramsOf(recipe, ri.id)}</td>
+                  <td className="py-1.5 text-right tabular-nums">{food ? gramsOf(recipe, ri.id) : "n/a"}</td>
                   <td className="py-1.5 text-right tabular-nums">{Math.round(g?.amount ?? 0)}</td>
                   <td className="py-1.5 text-right tabular-nums">{(p?.amount ?? 0).toFixed(1)} g</td>
                 </tr>
@@ -322,6 +329,6 @@ function EstimateNotes({ recipe }: { recipe: Recipe }) {
 }
 
 function gramsOf(recipe: Recipe, id: string) {
-  const g = PORTION_GRAMS[recipe.id]?.[id] ?? 0;
+  const g = portionGrams(recipe, id) ?? 0;
   return g < 1 ? g.toFixed(1) : Math.round(g).toString();
 }

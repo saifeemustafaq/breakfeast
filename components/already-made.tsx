@@ -37,11 +37,14 @@ export type LoggedBreakfast = { recipeId: number; madeAt: string; note: string |
  */
 export function AlreadyMadeDialog({
   recipe,
+  choice,
   note,
   onClose,
   onLogged,
 }: {
   recipe: Recipe | null;
+  /** The version shown on the suggestion, recorded with the breakfast. */
+  choice?: string;
   note?: string;
   onClose: () => void;
   onLogged: (logged: LoggedBreakfast) => void;
@@ -49,7 +52,7 @@ export function AlreadyMadeDialog({
   return (
     <Dialog open={recipe !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
-        {recipe && <LogForm key={recipe.id} recipe={recipe} note={note ?? ""} onCancel={onClose} onLogged={onLogged} />}
+        {recipe && <LogForm key={recipe.id} recipe={recipe} choice={choice} note={note ?? ""} onCancel={onClose} onLogged={onLogged} />}
       </DialogContent>
     </Dialog>
   );
@@ -57,11 +60,13 @@ export function AlreadyMadeDialog({
 
 function LogForm({
   recipe,
+  choice,
   note,
   onCancel,
   onLogged,
 }: {
   recipe: Recipe;
+  choice?: string;
   note: string;
   onCancel: () => void;
   onLogged: (logged: LoggedBreakfast) => void;
@@ -81,7 +86,7 @@ function LogForm({
     setError(null);
     startTransition(async () => {
       try {
-        await unwrap(logBreakfast({ recipeId: recipe.id, daysAgo, ...(rating ? { rating } : {}) }));
+        await unwrap(logBreakfast({ recipeId: recipe.id, daysAgo, choice, ...(rating ? { rating } : {}) }));
       } catch (err) {
         setError(failureMessage(err, "Couldn't save. Check your connection."));
         return;

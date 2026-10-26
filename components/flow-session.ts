@@ -3,6 +3,8 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { RECIPE_BY_ID, type CheckScope, type Recipe } from "@/lib/recipes";
 import { HOUR, MIN } from "@/lib/time";
+import type { Extra, VersionChoice } from "@/lib/types";
+import type { AdditionInput } from "@/lib/versions";
 
 export type Mode = "now" | "tonight";
 
@@ -16,17 +18,29 @@ export type Step =
   | { name: "gather"; recipeId: number; scope: CheckScope }
   | { name: "steps"; recipeId: number; night: boolean }
   | { name: "tonightDone"; recipeId: number; needsPrep: boolean }
-  | { name: "serve"; recipeId: number; historyId: string }
+  | { name: "serve"; recipeId: number; historyId: string; choice?: MadeChoice; skipped?: string[]; extras?: Extra[] }
   | { name: "done" }
   | { name: "exhausted" };
 
-/** Everything Back has to restore, so stepping back shows the same suggestion as before. */
-export type Frame = { step: Step; mode: Mode; pinned: number | null; skipped: number[] };
+/** The version being made; "planned" is whatever last night's plan froze. */
+export type MadeChoice = VersionChoice | "planned";
+
+/**
+ * Everything Back has to restore, so stepping back shows the same suggestion as before.
+ * `skipped` is suggestions passed over; `choice` is the version picked for the one being made.
+ */
+export type Frame = { step: Step; mode: Mode; pinned: number | null; skipped: number[]; choice?: MadeChoice };
 export type Nav = { at: Frame; trail: Frame[] };
 
-/** Ticks on the gather and steps screens, for the recipe being made. */
-export type Progress = { recipeId: number | null; taken: string[]; done: number[] };
-export const NO_PROGRESS: Progress = { recipeId: null, taken: [], done: [] };
+/** Ticks on the gather and steps screens, ingredients skipped, and one-off extras, for the recipe being made. */
+export type Progress = {
+  recipeId: number | null;
+  taken: string[];
+  done: number[];
+  skipped?: string[];
+  extras?: AdditionInput[];
+};
+export const NO_PROGRESS: Progress = { recipeId: null, taken: [], done: [], skipped: [], extras: [] };
 
 type Session = { version: 1; nav: Nav; progress: Progress; startedAt: number; updatedAt: number };
 
@@ -147,7 +161,7 @@ export function startedAgo({ startedAt, now }: SavedSession) {
 }
 
 /** "Kitchen check", "2 of 3 steps done", ... for the Resume card. */
-export function describeSession({ nav, progress, recipe }: SavedSession) {
+export function describeSession({ nav, progress }: SavedSession, recipe: Recipe) {
   const step = nav.at.step;
   switch (step.name) {
     case "check":
