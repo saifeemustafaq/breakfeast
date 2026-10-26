@@ -139,6 +139,11 @@ export const USDA_FOODS: Record<string, FoodRecord> = {
     description: "Seeds, sesame seeds, whole, dried",
     per100g: { kcal: 573, protein: 17.73, fat: 49.67, satFat: 6.957, carbs: 23.45, fiber: 11.8, sugars: 0.3, calcium: 975, iron: 14.55, magnesium: 351, potassium: 468, sodium: 11, zinc: 7.75, selenium: 34.4, vitA: 0, vitC: 0, vitD: 0, vitE: 0.25, vitK: 0, folate: 97, b12: 0, choline: 25.6, ala: 0.376 },
   },
+  "honey": {
+    fdcId: 169640,
+    description: "Honey",
+    per100g: { kcal: 304, protein: 0.3, fat: 0, satFat: 0, carbs: 82.4, fiber: 0.2, sugars: 82.12, calcium: 6, iron: 0.42, magnesium: 2, potassium: 52, sodium: 4, zinc: 0.22, selenium: 0.8, vitA: 0, vitC: 0.5, vitD: 0, vitE: 0, vitK: 0, folate: 2, b12: 0, choline: 2.2, ala: 0 },
+  },
   "peanut-butter": {
     fdcId: 174266,
     description: "Peanut butter, smooth style, with salt (Includes foods for USDA's Food Distribution Program)",
@@ -198,6 +203,16 @@ export const USDA_FOODS: Record<string, FoodRecord> = {
     fdcId: 172231,
     description: "Spices, turmeric, ground",
     per100g: { kcal: 312, protein: 9.68, fat: 3.25, satFat: 1.838, carbs: 67.14, fiber: 22.7, sugars: 3.21, calcium: 168, iron: 55, magnesium: 208, potassium: 2080, sodium: 27, zinc: 4.5, selenium: 6.2, vitA: 0, vitC: 0.7, vitD: 0, vitE: 4.43, vitK: 13.4, folate: 20, b12: 0, choline: 49.2, ala: 0.003 },
+  },
+  "paprika": {
+    fdcId: 171329,
+    description: "Spices, paprika",
+    per100g: { kcal: 282, protein: 14.14, fat: 12.89, satFat: 2.141, carbs: 53.99, fiber: 34.9, sugars: 10.34, calcium: 229, iron: 21.14, magnesium: 178, potassium: 2280, sodium: 68, zinc: 4.33, selenium: 6.3, vitA: 2463, vitC: 0.9, vitD: 0, vitE: 29.1, vitK: 80.3, folate: 49, b12: 0, choline: 51.5, ala: 0.453 },
+  },
+  "garlic-powder": {
+    fdcId: 171325,
+    description: "Spices, garlic powder",
+    per100g: { kcal: 331, protein: 16.55, fat: 0.73, satFat: 0.249, carbs: 72.73, fiber: 9, sugars: 2.43, calcium: 79, iron: 5.65, magnesium: 77, potassium: 1193, sodium: 60, zinc: 2.99, selenium: 23.9, vitA: 0, vitC: 1.2, vitD: 0, vitE: 0.67, vitK: 0.4, folate: 47, b12: 0, choline: 67.5, ala: 0.012 },
   },
   "black-pepper": {
     fdcId: 170931,
