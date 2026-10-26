@@ -6,7 +6,7 @@ import { done, fail, parseInput, userAction, type ActionResult } from "@/lib/act
 import { collections } from "@/lib/db";
 import { RECIPE_BY_ID } from "@/lib/recipes";
 import { choiceKind } from "@/lib/version-store";
-import { MAX_ADDITIONS, validateAdditions, type AdditionInput } from "@/lib/versions";
+import { MAX_ADDITIONS, OWN_QTY_MAX, validateAdditions, type AdditionInput } from "@/lib/versions";
 
 const recipeId = z.custom<number>((id) => typeof id === "number" && !!RECIPE_BY_ID[id], {
   error: "That breakfast isn't in the recipe list.",
@@ -15,7 +15,7 @@ const additionList = z
   .array(
     z.object({
       ingredientId: z.string().max(40),
-      qty: z.string().max(60),
+      qty: z.string().max(OWN_QTY_MAX),
       when: z.enum(["night", "morning"]),
     }),
   )

@@ -21,7 +21,7 @@ The parts that make Breakfeast *Breakfeast* (and where most bugs hide):
 
 | Subsystem | Lives in | Why it's delicate |
 |---|---|---|
-| Today flow | `components/breakfast-flow.tsx` | A 12-step client state machine; owns optimistic stock, plan and cart state after the first load |
+| Today flow | `components/breakfast-flow.tsx`, `components/today/*` | A 12-step client state machine; owns optimistic stock, plan and cart state after the first load |
 | Recipe catalog | `lib/recipes.ts` | Recipe ids (numbers) and ingredient ids (strings) are stored in MongoDB. Renaming one orphans data |
 | Nutrition | `lib/nutrition.ts`, `lib/nutrition-data.ts`, `scripts/extract-usda.py` | Generated USDA data, hand-checked gram weights, insight copy with legal constraints |
 | Patterns and ranking | `lib/patterns.ts`, `rankRecipes` / `preferenceScore` in `lib/recipes.ts` | Thresholds decide what counts as a real preference versus noise |
@@ -37,6 +37,7 @@ The parts that make Breakfeast *Breakfeast* (and where most bugs hide):
 | `plan15.md` | The 15 recipes, exclusions (no egg, beetroot, coconut, banana, fish, beef, pork), rating method | `lib/recipes.ts` must match it. A recipe change updates both |
 | `docs/nutrition-methodology.md` | How nutrition numbers and insight copy are produced | Any change to `PORTION_GRAMS`, `RULES`, Daily Values or the USDA mapping updates it |
 | `docs/business-events.md` | Every business event name and what its data holds | A new or renamed `userAction` event updates it |
+| `docs/your-version-plan.md` | Personal versions and one-off extras: decisions and build plan | A change to how versions, skips or extras work |
 | `admin-panel-instructions.md` | The reusable spec the admin panel, auth and monitoring were built from | Read it before changing auth, sessions, the admin API or monitoring |
 | `README.md` | Setup, accounts, admin CLI, deploy | Keep the CLI table and env list in sync |
 | `.env.example` | Every environment variable | A new variable is added here in the same PR |
@@ -126,7 +127,9 @@ breakfeast/
 │   ├── ui/                        # shadcn primitives (base-nova)
 │   ├── admin/                     # Admin client: api.ts (adminFetch, useAdminQuery, useCursorList), shell, ui, pages
 │   ├── activity/                  # Browser monitoring: logger, auto-capture, device + GPS, toast wrapper, provider
-│   ├── breakfast-flow.tsx         # Today state machine
+│   ├── breakfast-flow.tsx         # TodayFlow and BreakfastFlow: picks the screen for the current step
+│   ├── today/                     # Today's pieces: use-today-flow.tsx (all state and actions), one
+│   │                              #   <step>-screen.tsx per step, parts.tsx (shared bits), helpers.ts
 │   ├── flow-session.ts            # Today's Step/Frame types; the unfinished breakfast saved on this phone (Resume)
 │   ├── plan-flow.tsx, cart-view.tsx, pantry-view.tsx, household-section.tsx, dislikes-view.tsx
 │   ├── kitchen-checklist.tsx, prep-details.tsx, rating-form.tsx (RatingForm, ScoreRows)
@@ -180,7 +183,7 @@ breakfeast/
 │   ├── admin-cli.ts               # db:init, db:reset-app-data, admin:create|reset-password|list|disable|enable
 │   ├── predeploy.ts               # npm run predeploy: tests, tsc, lint, build, Netlify-style secrets scan
 │   └── extract-usda.py            # USDA FoodData Central CSV to lib/nutrition-data.ts
-├── docs/nutrition-methodology.md, docs/business-events.md
+├── docs/nutrition-methodology.md, docs/business-events.md, docs/your-version-plan.md
 └── plan15.md, admin-panel-instructions.md, README.md, AGENTS.md, .env.example
 ```
 
@@ -189,13 +192,13 @@ breakfeast/
 | Layer | May import | Must not import |
 |---|---|---|
 | `components/ui/*` | `cn`, `@base-ui/react`, other `ui/*` | Anything domain |
-| `components/*` (user app) | `ui/*`, `activity/*`, isomorphic `lib/*`, `@/app/actions`, `@/app/household-actions`, `lib/*` **types** | `lib/db`, `lib/data`, `lib/auth/*` values, anything `server-only`, `toast` from `sonner` (lint error; use `@/components/activity/toast`) |
+| `components/*` (user app) | `ui/*`, `activity/*`, isomorphic `lib/*`, `@/app/actions`, `@/app/household-actions`, `@/app/version-actions`, `@/app/notes-actions`, `@/app/preferences-actions`, `lib/*` **types** | `lib/db`, `lib/data`, `lib/auth/*` values, anything `server-only`, `toast` from `sonner` (lint error; use `@/components/activity/toast`) |
 | `components/activity/*` | Isomorphic `lib/monitoring/*`, `lib/time`, `sonner` (in `toast.ts` only) | React state outside `activity-provider.tsx`, anything `server-only` |
 | `components/admin/*` | `lib/api-client`, `@base-ui/react`, `sonner`, isomorphic `lib/{monitoring/labels,phone,time,return-path}`, `lib/admin/*` and `lib/schema` **types** (`import type` only), its own files | `components/ui/*`, `components/activity/*` (the admin isn't monitored), Tailwind classes, Server Actions |
 | `app/(app)/**/page.tsx` | `lib/data`, `lib/household-data`, components | Raw collection queries |
-| `app/actions.ts`, `app/household-actions.ts` | `lib/action`, `lib/db`, `lib/recipes`, `lib/households` | React, components |
+| `app/actions.ts`, `app/household-actions.ts`, `app/version-actions.ts`, `app/notes-actions.ts`, `app/preferences-actions.ts` | `lib/action`, `lib/db`, `lib/recipes`, `lib/households`, `lib/version-store`, `lib/auth/*` (as needed), isomorphic `lib/{ingredients,phone,time,versions,types}`, `lib/schema` **types** | React, components |
 | `app/api/**/route.ts` | `lib/api/http`, `lib/admin/*`, `lib/auth/*` | Business logic inline (route files are 3 to 15 lines; keep it that way) |
-| Isomorphic `lib/*` (`recipes`, `nutrition`, `patterns`, `cart`, `cache-tags`, `stock`, `phone`, `types`, `time`, `action-result`, `monitoring/{ua,labels,payload,redact,trace}`) | Each other, `lib/schema` **types** | `lib/db`, `lib/auth/*`, `server-only`, React |
+| Isomorphic `lib/*` (`recipes`, `nutrition`, `nutrition-data`, `patterns`, `cart`, `cache-tags`, `stock`, `phone`, `types`, `time`, `action-result`, `versions`, `measures`, `search`, `export`, `ingredients`, `return-path`, `utils`, `api-client`, `monitoring/{ua,labels,payload,redact,trace}`) | Each other, `lib/schema` **types** | `lib/db`, `lib/auth/*`, `server-only`, React |
 | `lib/schema.ts` | `mongodb` **types**, `lib/auth/config` | `lib/db` (the CLI imports schema without the app's client) |
 
 **Grouping philosophy.** Group by domain. A route's private client component sits next to its `page.tsx` (`login/login-form.tsx`). When a second route needs it, move it to `components/`. Shared user-app components live flat in `components/`; the admin panel lives in `components/admin/`.
@@ -730,11 +733,13 @@ Not reasons to split: a long static table (`lib/recipes.ts` is mostly data; `lib
 
 | File | Lines | Notes |
 |---|---|---|
-| `components/breakfast-flow.tsx` | ~990 | One component per step case would help; extract `ModeButton`, the suggest card and the serve step first |
+| `components/today/use-today-flow.tsx` | ~600 | Today's state and actions, split out of `breakfast-flow.tsx` so each screen has its own file. One state machine; fine as long as it stays logic only |
 | `lib/recipes.ts` | ~635 | Data. Fine. If helpers grow, move them to `lib/recipe-helpers.ts` |
 | `lib/nutrition.ts` | ~550 | `RULES` (insight copy) could move to `lib/nutrition-insights.ts` |
 | `lib/admin/users.ts` | ~540 | Split sessions and audit listing into `lib/admin/sessions.ts` and `lib/admin/audit.ts` |
 | `components/admin/user-detail.tsx` | ~460 | Profile and Sessions tabs could move out, as Household (`user-household.tsx`) and the monitoring tabs (`user-monitoring.tsx`) already have |
+
+**Today's screens** each take `flow` (the object `useTodayFlow` returns) and, when they read the step's fields, `step` narrowed to their case. A new step is a `Step` variant in `flow-session.ts`, a screen file in `components/today/`, and a case in `BreakfastFlow`. Logic shared by screens goes in the hook; markup only one screen uses stays in that screen's file. Keep render-time navigation (like falling back to the start screen when the plan is gone) in `BreakfastFlow`, not in a screen, because a child can't update the parent's state while rendering.
 
 When splitting, move code without changing it in the same commit, so the diff is reviewable.
 

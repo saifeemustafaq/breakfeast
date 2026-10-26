@@ -6,7 +6,7 @@ import type { Collections } from "./db";
 import { isCustomId } from "./ingredients";
 import { INGREDIENTS, RECIPE_BY_ID } from "./recipes";
 import type { ExtraDoc, VersionSnapshotDoc } from "./schema";
-import { MAX_ADDITIONS, recipeFromSnapshot, validateAdditions, type AdditionInput } from "./versions";
+import { MAX_ADDITIONS, OWN_QTY_MAX, recipeFromSnapshot, validateAdditions, type AdditionInput } from "./versions";
 
 /** "original", "mine", "user:<id>" for a shared version, or "planned" for whatever tomorrow's plan froze. */
 export const choiceInput = z
@@ -23,7 +23,7 @@ export const madeInput = z
       .array(
         z.object({
           ingredientId: z.string().max(40),
-          qty: z.string().max(40),
+          qty: z.string().max(OWN_QTY_MAX),
           when: z.enum(["night", "morning"]),
         }),
       )
