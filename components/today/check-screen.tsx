@@ -13,15 +13,38 @@ export function CheckScreen({
   flow: TodayFlowState;
   step: Extract<Step, { name: "check" }>;
 }) {
-  const { initial, mode, session, stock, pending, ingredients, making, submitCheck, back } = flow;
+  const {
+    initial,
+    mode,
+    session,
+    stock,
+    pending,
+    ingredients,
+    making,
+    skippedFor,
+    tick,
+    submitCheck,
+    back,
+  } = flow;
   const recipe = making(step.recipeId);
   const ids = checkableIds(recipe, step.scope);
   const qty = Object.fromEntries(recipeItems(recipe, step.scope).map((ri) => [ri.id, ri]));
+  const skipped = skippedFor(step.recipeId);
   const remembered = new Set(
-    ids.filter((id) => !session[id] && rememberedInStock(id, stock, initial.loadedAt)),
+    ids.filter(
+      (id) =>
+        !skipped.includes(id) &&
+        !session[id] &&
+        rememberedInStock(id, stock, initial.loadedAt),
+    ),
   );
   const initialStatus = Object.fromEntries(
-    ids.map((id) => [id, session[id] ?? (remembered.has(id) ? "have" : undefined)]),
+    ids.map((id) => [
+      id,
+      skipped.includes(id)
+        ? undefined
+        : (session[id] ?? (remembered.has(id) ? "have" : undefined)),
+    ]),
   );
   return (
     <section className="flex flex-col gap-5">
@@ -50,6 +73,8 @@ export function CheckScreen({
         knownInStock={(id) => rememberedInStock(id, stock, initial.loadedAt)}
         missingLabel="Add missing to cart & try the next one"
         pending={pending}
+        skipped={skipped}
+        onSkip={(next) => tick(step.recipeId, { skipped: next })}
         onSubmit={(status) => submitCheck(step.recipeId, step.scope, status)}
         ingredients={ingredients}
       />
