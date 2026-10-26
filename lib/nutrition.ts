@@ -74,8 +74,8 @@ const NO_NUTRIENTS = new Set(["water"]);
  * rest are documented in docs/nutrition-methodology.md.
  */
 export const PORTION_GRAMS: Record<number, Record<string, number>> = {
-  1: { "rolled-oats": 40.5, "greek-yogurt": 170, chia: 12, water: 30, blueberries: 92, walnuts: 7 },
-  2: { "rolled-oats": 40.5, "soy-milk": 121.5, "greek-yogurt": 113, strawberries: 125, "pumpkin-seeds": 8 },
+  1: { "rolled-oats": 40.5, "greek-yogurt": 170, chia: 12, water: 30, blueberries: 92, walnuts: 7, honey: 21 },
+  2: { "rolled-oats": 40.5, "soy-milk": 121.5, "greek-yogurt": 113, strawberries: 125, "pumpkin-seeds": 8, chia: 12, walnuts: 7 },
   3: { "rolled-oats": 27, "greek-yogurt": 170, apple: 182, "peanut-butter": 16, cinnamon: 0.3 },
   4: { chia: 24, "rolled-oats": 20, "soy-milk": 182, mango: 124, almonds: 9 },
   5: { "greek-yogurt": 170, kiwi: 69, "fortified-cereal": 14, "pumpkin-seeds": 8 },
@@ -85,7 +85,17 @@ export const PORTION_GRAMS: Record<number, Record<string, number>> = {
   9: { lentils: 148.5, "quinoa-cooked": 92.5, "bell-pepper": 60, "pumpkin-seeds": 8, lemon: 6, "olive-oil": 4.5 },
   10: { "firm-tofu": 142, spinach: 30, "bell-pepper": 60, bread: 32, "olive-oil": 4.5, turmeric: 0.75 },
   11: { "black-beans": 180, "sweet-potato-cooked": 100, avocado: 50, salsa: 36, lime: 6 },
-  12: { "chicken-cooked": 85, "rice-cooked": 101, broccoli: 91, lemon: 6, "olive-oil": 4.5, "black-pepper": 0.1 },
+  12: {
+    "chicken-cooked": 85,
+    "rice-cooked": 101,
+    broccoli: 91,
+    lemon: 6,
+    "olive-oil": 5.34,
+    salt: 0.56,
+    "black-pepper": 0.32,
+    paprika: 0.22,
+    "garlic-powder": 0.29,
+  },
   13: { "chicken-cooked": 85, "white-beans": 131, spinach: 20, bread: 48, lemon: 6 },
   14: { "buckwheat-cooked": 126, pear: 178, "greek-yogurt": 113, walnuts: 7, cinnamon: 0.3 },
   15: { "rolled-oats": 40.5, edamame: 77.5, mushrooms: 35, spinach: 20, sesame: 3, salt: 0.5, water: 240 },
@@ -117,6 +127,7 @@ const INGREDIENT_CAVEATS: Record<string, CaveatDef> = {
   "silken-tofu": { text: "Modeled on Mori-Nu firm silken tofu." },
   salsa: { text: "Salsa brands vary widely in sodium." },
   "peanut-butter": { text: "Modeled on salted smooth peanut butter." },
+  walnuts: { text: "Walnuts and pecans differ slightly; the estimate uses walnuts." },
   chia: { text: "USDA doesn't report folate or choline for chia, so those totals may read low." },
 };
 

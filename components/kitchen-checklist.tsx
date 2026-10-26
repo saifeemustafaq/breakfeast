@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckIcon, CookingPotIcon, XIcon } from "lucide-react";
+import { CheckIcon, CookingPotIcon, SkipForwardIcon, Undo2Icon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { INGREDIENTS, KITCHEN_SPOT, sortByKitchen, type Ingredient } from "@/lib/recipes";
 import type { CheckStatus } from "@/lib/types";
@@ -18,6 +18,8 @@ export function KitchenChecklist({
   missingLabel,
   pending,
   onSubmit,
+  skipped = [],
+  onSkip,
   ingredients = INGREDIENTS,
 }: {
   items: ChecklistItem[];
@@ -30,6 +32,9 @@ export function KitchenChecklist({
   missingLabel?: string;
   pending?: boolean;
   onSubmit: (status: Record<string, CheckStatus>) => void;
+  /** Ingredients intentionally left out of this meal. Only shown when onSkip is provided. */
+  skipped?: string[];
+  onSkip?: (skipped: string[]) => void;
   /** Include the household's own items when checking a personal version. */
   ingredients?: Record<string, Ingredient>;
 }) {
@@ -54,7 +59,9 @@ export function KitchenChecklist({
   const bases = [...asks.keys()];
 
   const total = sorted.length + bases.length;
-  const decided = sorted.filter((i) => status[i.id]).length + bases.filter((b) => status[b]).length;
+  const decided =
+    sorted.filter((i) => status[i.id] || skipped.includes(i.id)).length +
+    bases.filter((b) => status[b]).length;
   const allDecided = decided === total;
   const missingCount = sorted.filter((i) => status[i.id] === "missing").length;
   const canExitEarly = !!missingLabel && missingCount > 0 && bases.every((b) => status[b]);
@@ -70,6 +77,7 @@ export function KitchenChecklist({
   }
 
   function set(id: string, value: CheckStatus) {
+    if (skipped.includes(id)) onSkip?.(skipped.filter((itemId) => itemId !== id));
     setStatus((s) => {
       const next = { ...s, [id]: s[id] === value ? undefined : value };
       const from = baseOf(id);
@@ -86,9 +94,18 @@ export function KitchenChecklist({
   function markRestHave() {
     setStatus((s) => {
       const next = { ...s };
-      for (const i of sorted) next[i.id] ??= "have";
+      for (const i of sorted) {
+        if (!skipped.includes(i.id)) next[i.id] ??= "have";
+      }
       return next;
     });
+  }
+
+  function toggleSkip(id: string) {
+    if (!onSkip) return;
+    const isSkipped = skipped.includes(id);
+    setStatus((s) => ({ ...s, [id]: undefined }));
+    onSkip(isSkipped ? skipped.filter((itemId) => itemId !== id) : [...skipped, id]);
   }
 
   const spots = sorted.map((i) => KITCHEN_SPOT[ingredients[i.id]?.aisle ?? "Pantry"]);
@@ -111,6 +128,7 @@ export function KitchenChecklist({
           const ing = ingredients[item.id] ?? { id: item.id, name: item.id, aisle: "Pantry" as const };
           const header = spots[idx] !== spots[idx - 1] ? spots[idx] : null;
           const s = status[item.id];
+          const isSkipped = skipped.includes(item.id);
           const base = bases.find((b) => asks.get(b) === item.id);
           return (
             <li key={item.id} className="flex flex-col gap-2">
@@ -124,12 +142,22 @@ export function KitchenChecklist({
                   "flex items-center gap-3 rounded-xl border bg-card p-3 transition-colors",
                   s === "have" && "border-success/40 bg-success/5",
                   s === "missing" && "border-destructive/40 bg-destructive/5",
+                  isSkipped && "bg-muted/50",
                 )}
               >
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium leading-tight">{ing.name}</p>
+                  <p
+                    className={cn(
+                      "font-medium leading-tight",
+                      isSkipped && "text-muted-foreground line-through",
+                    )}
+                  >
+                    {ing.name}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    {[item.detail, ing.note].filter(Boolean).join(" · ")}
+                    {isSkipped
+                      ? "Skipping this time"
+                      : [item.detail, ing.note].filter(Boolean).join(" · ")}
                   </p>
                   {ing.batch && s === "missing" && (
                     <p className="mt-1 flex items-center gap-1 text-xs text-warning">
@@ -163,6 +191,19 @@ export function KitchenChecklist({
                   >
                     <XIcon />
                   </Button>
+                  {onSkip && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-11 px-2 text-muted-foreground"
+                      aria-label={isSkipped ? `Don't skip ${ing.name}` : `Skip ${ing.name}`}
+                      aria-pressed={isSkipped}
+                      onClick={() => toggleSkip(item.id)}
+                    >
+                      {isSkipped ? <Undo2Icon /> : <SkipForwardIcon />}
+                      {isSkipped ? "Undo" : "Skip"}
+                    </Button>
+                  )}
                 </div>
               </div>
               {base && <RawBase id={base} status={status[base]} onSet={set} />}

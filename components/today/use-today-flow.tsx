@@ -388,18 +388,19 @@ export function useTodayFlow(initial: AppState, startWith?: StartWith) {
     choice: MadeChoice | undefined = nav.at.choice,
   ) {
     const recipe = recipeFor(recipeId, choice);
+    const skipped = skippedFor(recipeId);
     if (mode === "tonight") {
       if (recipe.prep === "overnight") go({ name: "gather", recipeId, scope: "night" }, { choice });
       else {
         startTransition(async () => {
           try {
-            await unwrap(planTomorrow(recipeId, false, { choice }));
+            await unwrap(planTomorrow(recipeId, false, { choice, skipped }));
             setUpcoming({
               recipeId,
               needsPrep: false,
               createdAt: new Date().toISOString(),
               version: planSnapshot(recipeId, choice),
-              skipped: [],
+              skipped,
               extras: [],
             });
             settle({ name: "tonightDone", recipeId, needsPrep: false });

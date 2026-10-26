@@ -100,10 +100,11 @@ const list: Ingredient[] = [
   { id: "sweet-potato", name: "Sweet potatoes", aisle: "Produce" },
   { id: "chicken-raw", name: "Chicken breast (raw)", aisle: "Meat" },
   { id: "chia", name: "Chia seeds", aisle: "Pantry" },
-  { id: "walnuts", name: "Walnuts", aisle: "Pantry" },
+  { id: "walnuts", name: "Walnuts or pecans", aisle: "Pantry" },
   { id: "almonds", name: "Almonds", aisle: "Pantry" },
   { id: "pumpkin-seeds", name: "Pumpkin seeds", aisle: "Pantry" },
   { id: "sesame", name: "Sesame seeds", aisle: "Pantry" },
+  { id: "honey", name: "Honey", aisle: "Pantry" },
   { id: "peanut-butter", name: "Peanut butter", aisle: "Pantry" },
   { id: "almond-butter", name: "Almond butter", aisle: "Pantry" },
   {
@@ -134,6 +135,8 @@ const list: Ingredient[] = [
   { id: "cocoa", name: "Unsweetened cocoa", aisle: "Spices & oils" },
   { id: "cinnamon", name: "Cinnamon", aisle: "Spices & oils" },
   { id: "turmeric", name: "Turmeric or paprika", aisle: "Spices & oils" },
+  { id: "paprika", name: "Paprika", aisle: "Spices & oils" },
+  { id: "garlic-powder", name: "Garlic powder", aisle: "Spices & oils" },
   { id: "black-pepper", name: "Black pepper", aisle: "Spices & oils" },
   { id: "salt", name: "Salt", aisle: "Spices & oils" },
   { id: "olive-oil", name: "Olive oil", aisle: "Spices & oils" },
@@ -195,7 +198,7 @@ const list: Ingredient[] = [
       minutes: 30,
       keepsDays: 4,
       howTo:
-        "Season and bake chicken breasts at 425°F (220°C) for about 20 min, until 165°F (74°C) inside. Cool, cut into 3 oz portions; refrigerate up to 3–4 days or freeze.",
+        "For each 1 lb of chicken breast, rub with 1 tsp olive oil, ½ tsp salt, ½ tsp black pepper, ½ tsp paprika and ½ tsp garlic powder. Bake at 425°F (220°C) for about 20 min, until 165°F (74°C) inside. Cool, cut into 3 oz portions; refrigerate up to 3–4 days or freeze.",
     },
   },
 ];
@@ -220,6 +223,7 @@ export const RECIPES: Recipe[] = [
       { id: "water", qty: "A splash, to loosen", when: "night" },
       { id: "blueberries", qty: "½–¾ cup", when: "morning" },
       { id: "walnuts", qty: "1 tbsp, chopped", when: "morning" },
+      { id: "honey", qty: "1 tbsp", when: "morning" },
     ],
     nightSteps: [
       "In a jar, mix the oats, yogurt and chia with a splash of water or milk.",
@@ -227,8 +231,8 @@ export const RECIPES: Recipe[] = [
     ],
     steps: [
       "Stir the oats; loosen with a little liquid if thick.",
-      "Top with blueberries and chopped walnuts.",
-      "Sweeten to taste and serve.",
+      "Top with blueberries, chopped walnuts or pecans and 1 tbsp honey.",
+      "Serve cold.",
     ],
   },
   {
@@ -243,6 +247,8 @@ export const RECIPES: Recipe[] = [
       { id: "greek-yogurt", qty: "½ cup", when: "morning" },
       { id: "strawberries", qty: "¾ cup", when: "morning" },
       { id: "pumpkin-seeds", qty: "1 tbsp", when: "morning" },
+      { id: "chia", qty: "1 tbsp", when: "morning" },
+      { id: "walnuts", qty: "1 tbsp, chopped", when: "morning" },
     ],
     nightSteps: [
       "Stir the oats into the soy milk in a jar.",
@@ -251,7 +257,7 @@ export const RECIPES: Recipe[] = [
     steps: [
       "Stir the yogurt into the soaked oats.",
       "Slice the strawberries and add them on top.",
-      "Sprinkle with pumpkin seeds and serve.",
+      "Sprinkle with pumpkin seeds, chia seeds and chopped walnuts or pecans, then serve.",
     ],
   },
   {
@@ -441,8 +447,11 @@ export const RECIPES: Recipe[] = [
       { id: "rice-cooked", qty: "½ cup" },
       { id: "broccoli", qty: "1 cup" },
       { id: "lemon", qty: "A squeeze" },
-      { id: "olive-oil", qty: "1 tsp" },
-      { id: "black-pepper", qty: "To taste" },
+      { id: "olive-oil", qty: "1 tsp, plus 1 tsp per 1 lb chicken" },
+      { id: "salt", qty: "½ tsp per 1 lb chicken" },
+      { id: "black-pepper", qty: "½ tsp per 1 lb chicken, plus to taste" },
+      { id: "paprika", qty: "½ tsp per 1 lb chicken" },
+      { id: "garlic-powder", qty: "½ tsp per 1 lb chicken" },
     ],
     steps: [
       "Steam or microwave the broccoli for about 3 min.",

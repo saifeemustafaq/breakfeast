@@ -132,6 +132,10 @@ const MEASURES: Record<string, Measure[]> = {
     { label: "1 tbsp", grams: 16 },
     { label: "2 tbsp", grams: 32 },
   ],
+  honey: [
+    { label: "1 tsp", grams: 7 },
+    { label: "1 tbsp", grams: 21 },
+  ],
   "fortified-cereal": [
     { label: "¼ cup", grams: 7 },
     { label: "½ cup", grams: 14 },
@@ -174,8 +178,22 @@ const MEASURES: Record<string, Measure[]> = {
     { label: "¼ tsp", grams: 0.75 },
     { label: "½ tsp", grams: 1.5 },
   ],
-  "black-pepper": [{ label: "A pinch", grams: 0.1 }],
-  salt: [{ label: "A pinch", grams: 0.4 }],
+  paprika: [
+    { label: "¼ tsp", grams: 0.58 },
+    { label: "½ tsp", grams: 1.15 },
+  ],
+  "garlic-powder": [
+    { label: "¼ tsp", grams: 0.78 },
+    { label: "½ tsp", grams: 1.55 },
+  ],
+  "black-pepper": [
+    { label: "A pinch", grams: 0.1 },
+    { label: "½ tsp", grams: 1.15 },
+  ],
+  salt: [
+    { label: "A pinch", grams: 0.4 },
+    { label: "½ tsp", grams: 3 },
+  ],
   "olive-oil": [
     { label: "1 tsp", grams: 4.5 },
     { label: "1 tbsp", grams: 13.5 },
